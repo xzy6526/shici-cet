@@ -12,6 +12,7 @@ import { advanceStudySession, applyStudyRating, getStudyProgress } from './study
 import { authService } from './services/auth.js';
 import { createSyncService, hasMeaningfulLocalData } from './services/sync.js';
 import { createThemeService } from './services/theme.js';
+import { renderLoginResend } from './login-ui.js';
 import { formatExamProvenance, getAnswerContent, getCETTags, getPartOfSpeechLabels, getPrimaryMeaning, getRecommendationReason } from './word-card.js';
 
 const app = document.querySelector('#app');
@@ -377,7 +378,7 @@ function renderLoginSheet() {
   return `<div class="sheet-backdrop" data-action="close-login"><section class="bottom-sheet login-sheet" role="dialog" aria-modal="true" aria-labelledby="login-title" data-sheet-content>
     <div class="sheet-handle" data-sheet-drag-handle></div><div class="sheet-heading"><h2 id="login-title">登录并同步</h2>${button(icons.close, 'close-login', 'icon-button icon-button--quiet', 'aria-label="关闭登录"')}</div>
     <div class="login-progress" aria-label="登录步骤"><span class="${isEmailStep ? 'is-active' : ''}">邮箱</span><span class="${isEmailStep ? '' : 'is-active'}">验证码</span></div>
-    ${isEmailStep ? `<form data-login-email-form novalidate><label class="login-field"><span>邮箱地址</span><div class="login-email-input"><input type="email" name="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${escapeHtml(loginEmail)}" aria-label="邮箱地址" /></div></label><button class="primary-button login-submit" type="submit" ${loginSubmitting ? 'disabled' : ''}>${loginSubmitting ? '发送中…' : `获取验证码${icons.arrow}`}</button></form>` : `<form data-login-code-form novalidate><p class="login-receive">验证码已发送至 <strong>${escapeHtml(masked)}</strong></p><label class="login-field"><span>邮箱验证码</span><input class="login-code-input" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="请输入 6 位验证码" aria-label="邮箱验证码" /></label><button class="primary-button login-submit" type="submit" ${loginSubmitting ? 'disabled' : ''}>${loginSubmitting ? '验证中…' : `登录并同步${icons.arrow}`}</button><button class="text-button login-back" type="button" data-action="back-login">更换邮箱</button>${seconds ? `<p class="login-resend">${seconds} 秒后可重新发送</p>` : `<button class="text-button login-back" type="button" data-action="resend-login-code">重新发送验证码</button>`}</form>`}
+    ${isEmailStep ? `<form data-login-email-form novalidate><label class="login-field"><span>邮箱地址</span><div class="login-email-input"><input type="email" name="email" inputmode="email" autocomplete="email" placeholder="name@example.com" value="${escapeHtml(loginEmail)}" aria-label="邮箱地址" /></div></label><button class="primary-button login-submit" type="submit" ${loginSubmitting ? 'disabled' : ''}>${loginSubmitting ? '发送中…' : `获取验证码${icons.arrow}`}</button></form>` : `<form data-login-code-form novalidate><p class="login-receive">验证码已发送至 <strong>${escapeHtml(masked)}</strong></p><label class="login-field"><span>邮箱验证码</span><input class="login-code-input" type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="请输入 6 位验证码" aria-label="邮箱验证码" /></label><button class="primary-button login-submit" type="submit" ${loginSubmitting ? 'disabled' : ''}>${loginSubmitting ? '验证中…' : `登录并同步${icons.arrow}`}</button><button class="text-button login-back" type="button" data-action="back-login">更换邮箱</button><div class="login-resend-slot" data-login-resend-slot>${renderLoginResend(seconds)}</div></form>`}
     ${loginError ? `<p class="login-error" role="alert">${escapeHtml(loginError)}</p>` : ''}${loginHint ? `<p class="login-hint" role="status">${escapeHtml(loginHint)}</p>` : ''}
     <p class="sheet-note">首次验证会自动创建账号。学习始终先保存在当前设备。</p>
   </section></div>`;
@@ -1129,7 +1130,18 @@ function resetLogin() {
 function refreshLoginCountdown() {
   if (!loginOpen || loginStep !== 'code' || loginResendUntil <= Date.now()) return;
   clearTimeout(loginCountdownTimer);
-  loginCountdownTimer = setTimeout(() => { renderApp(); refreshLoginCountdown(); }, 1000);
+  const update = () => {
+    if (!loginOpen || loginStep !== 'code') return;
+    const remaining = Math.max(0, Math.ceil((loginResendUntil - Date.now()) / 1000));
+    const slot = app.querySelector('[data-login-resend-slot]');
+    if (slot) slot.innerHTML = renderLoginResend(remaining);
+    if (remaining <= 0) {
+      loginCountdownTimer = 0;
+      return;
+    }
+    loginCountdownTimer = setTimeout(update, 1000);
+  };
+  loginCountdownTimer = setTimeout(update, 1000);
 }
 
 async function requestLoginCode(form) {
