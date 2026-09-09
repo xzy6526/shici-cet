@@ -78,6 +78,7 @@ async (page) => {
   check((await page.locator('.word-study-meta').innerText()).includes('n. / v.'), '揭晓前显示词性');
   check(!(await page.locator('.study-main').innerText()).includes('问题；议题'), '揭晓前不显示中文释义');
   check(await page.locator('.rating-button').count() === 3, '揭晓前三个评分按钮唯一显示');
+  await page.setViewportSize({ width: 390, height: 844 });
   const wordTopBeforeRating = (await page.locator('.word-line').boundingBox()).y;
 
   for (const width of [320, 375, 390, 430]) {
@@ -97,6 +98,7 @@ async (page) => {
     check(metrics.minButtonWidth >= 80, `${width}px 评分按钮可点击`);
   }
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('[data-action="rate-known"]').click();
   check((await page.locator('.study-progress-copy strong').innerText()).includes('01 / 03'), '弱词插入不增加今日任务总数');
   const wordTopAfterRating = (await page.locator('.word-line').boundingBox()).y;
