@@ -68,6 +68,14 @@ test('migrates a persisted review session mode', () => {
   assert.equal(migrated.sessionMode, 'review');
 });
 
+test('migrates persisted batch completion state', () => {
+  const words = [{ id: 1, word: 'one' }, { id: 2, word: 'two' }];
+  const migrated = migrateState({ completionType: 'batch', reviewScope: 'batch', sessionMode: 'daily', dailyTask: { date: '2026-09-09', batches: [{ id: '2026-09-09-1', newWordIds: [1], completedNewIds: [1], reviewPoolIds: [1] }], activeBatchId: '2026-09-09-1' } }, words, new Date(2026, 8, 9).getTime());
+  assert.equal(migrated.completionType, 'batch');
+  assert.equal(migrated.reviewScope, 'batch');
+  assert.equal(migrateState({ completionType: 'other', reviewScope: 'other' }, words, 100).completionType, null);
+});
+
 test('restores the persisted home, library, study, and completion screens', () => {
   const words = [{ id: 1, word: 'one' }, { id: 2, word: 'two' }];
   for (const screen of ['home', 'library', 'study', 'complete']) {

@@ -253,6 +253,10 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 @keyframes check-in { from { opacity: 0; transform: scale(.75); } 75% { transform: scale(1.08); } to { opacity: 1; transform: scale(1); } }
 .complete-main h1 { margin: 11px 0 11px; font-size: clamp(40px, 10vw, 58px); font-weight: 680; letter-spacing: -.075em; }
 .complete-copy { margin: 0; color: var(--muted); font-size: 16px; }
+.batch-result-breakdown { display: flex; justify-content: center; gap: 28px; margin: 28px 0 -8px; }
+.batch-result-breakdown span { display: grid; gap: 4px; min-width: 48px; }
+.batch-result-breakdown strong { font-size: 21px; font-weight: 650; }
+.batch-result-breakdown small { color: var(--muted); font-size: 12px; }
 .complete-stats { display: flex; align-items: center; justify-content: center; gap: 30px; margin: 53px 0 43px; }
 .complete-stats div { display: grid; gap: 7px; }
 .complete-stats strong { font-size: 30px; font-weight: 650; letter-spacing: -.06em; }

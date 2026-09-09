@@ -302,6 +302,8 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
   settings.themePreference = ['system', 'light', 'dark'].includes(settings.themePreference) ? settings.themePreference : 'system';
   settings.themeUpdatedAt = Math.max(0, Number(settings.themeUpdatedAt) || 0);
   const sessionMode = ['daily', 'review'].includes(saved.sessionMode) ? saved.sessionMode : null;
+  const reviewScope = ['daily', 'batch'].includes(saved.reviewScope) ? saved.reviewScope : null;
+  const completionType = ['batch', 'review', 'daily'].includes(saved.completionType) ? saved.completionType : null;
   return {
     ...initial,
     ...saved,
@@ -312,6 +314,8 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
     newCursor: Math.min(Math.max(Number(saved.newCursor) || initial.newCursor, 0), list.length),
     pendingImported,
     sessionMode,
+    reviewScope,
+    completionType,
     completed,
     favorites,
     weakToday,
@@ -335,6 +339,8 @@ export function createInitialState(words, now = DEFAULT_NOW()) {
     newCursor: queue.length,
     pendingImported: [],
     sessionMode: null,
+    reviewScope: null,
+    completionType: null,
     revealed: false,
     rating: null,
     completed: [],
@@ -349,6 +355,11 @@ export function createInitialState(words, now = DEFAULT_NOW()) {
       totalReviewed: 0,
       todayLearned: 0,
       todayReviewed: 0,
+      plannedBatchSize: dailyNew,
+      uniqueNewWordsToday: 0,
+      reviewCardsShown: 0,
+      weakWordsToday: 0,
+      extraNewWordsToday: 0,
       weakWords: 0,
       streakDays: 0,
       lastStudyDate: null,

@@ -3,8 +3,8 @@ import { createInitialState, loadState, saveState, setThemePreference, updateSet
 import { parseCsv, parseJson, parseTextLines } from './importer.js';
 import { createGuestAccount, createLocalMigrationSnapshot, maskEmail } from './account.js';
 import { normalizeWord, stateForWord } from './domain.js';
-import { getFavoriteWords, getHiddenWords, getMistakeWords, filterWords } from './repository.js';
-import { calculateStreak, createDailyTask, dateKey, daysUntilExam as taskDaysUntilExam, getPendingReviewIds } from './tasks.js';
+import { getFavoriteWords, getHiddenWords, getMistakeWords, getNewWordCandidates, filterWords } from './repository.js';
+import { addBatchReviewWords, appendNewBatch, calculateStreak, completeBatch, createDailyTask, dateKey, daysUntilExam as taskDaysUntilExam, getBatch, getPendingBatchReviewIds, getPendingReviewEntries, getPendingReviewIds, normalizeDailyTask as normalizeTask } from './tasks.js';
 import { scheduleReview } from './scheduler.js';
 import { getPhonetic, pronunciationService } from './pronunciation.js';
 import { createStorage } from './storage.js';
@@ -70,6 +70,7 @@ let loginHint = '';
 let loginSubmitting = false;
 let loginResendUntil = 0;
 let loginCountdownTimer = 0;
+let lastActionGesture = null;
 let syncStatus = 'local';
 let authenticatedSync = null;
 let sheetGesture = null;
@@ -199,6 +200,36 @@ function hasPendingSessionItems() {
   return state.queue.slice(Math.max(0, state.queueIndex)).some((id) => !completed.has(id));
 }
 
+function activeBatch(task = state.dailyTask) {
+  return getBatch(task);
+}
+
+function batchHasCompletedNewWords(task = state.dailyTask) {
+  const batch = activeBatch(task);
+  return Boolean(batch && batch.newWordIds.length && batch.completedNewIds.length >= batch.newWordIds.length);
+}
+
+function hasUnseenWords() {
+  return getNewWordCandidates(studyPool(), state.wordStates, state.settings).length > 0;
+}
+
+function pendingDailyQueue(task) {
+  const pending = [];
+  const stages = [];
+  const append = (ids, completed, stage) => {
+    const done = new Set(completed || []);
+    for (const id of ids || []) {
+      if (done.has(id)) continue;
+      pending.push(id);
+      stages.push(stage);
+    }
+  };
+  append(task.reviewWordIds, task.completedReviewIds, 'review');
+  const batch = activeBatch(task);
+  append(batch?.newWordIds || task.newWordIds, batch?.completedNewIds || task.completedNewIds, 'new');
+  return { pending, stages };
+}
+
 function pendingTaskQueue(task) {
   const pending = [];
   const stages = [];
@@ -230,6 +261,11 @@ function ensureDailyTask() {
     state.dailyTask = createDailyTask({ words: studyPool(), wordStates: state.wordStates, settings: state.settings, now, previousTask: null });
     state.stats.todayLearned = 0;
     state.stats.todayReviewed = 0;
+    state.stats.uniqueNewWordsToday = 0;
+    state.stats.reviewCardsShown = 0;
+    state.stats.weakWordsToday = 0;
+    state.stats.extraNewWordsToday = 0;
+    state.stats.plannedBatchSize = state.dailyTask.batchSize;
     state.weakToday = [];
     state.completed = wasStudying ? previousCompleted : [];
     state.queueIndex = previousIndex;
@@ -238,10 +274,17 @@ function ensureDailyTask() {
     state.queueStages = wasStudying ? previousStages : stages;
     state.dueCount = state.dailyTask.reviewWordIds.length;
     state.stats.streakDays = calculateStreak(previousHistory, today);
+    state.completionType = null;
+    state.reviewScope = null;
+    saveState(state);
+  } else if (!Array.isArray(state.dailyTask?.batches) || !Array.isArray(state.dailyTask?.reviewPoolIds)) {
+    state.dailyTask = normalizeTask(state.dailyTask);
+    state.stats.plannedBatchSize = state.stats.plannedBatchSize || state.dailyTask.batchSize || state.settings.dailyNew;
     saveState(state);
   } else if (!state.queueStages?.length && state.queue.length) {
     state.queueStages = state.queue.map((_, index) => index < state.dueCount ? 'review' : 'new');
   }
+  state.stats.plannedBatchSize = state.stats.plannedBatchSize || state.dailyTask?.batchSize || state.settings.dailyNew;
   state.dueCount = Math.max(0, (state.dailyTask?.reviewWordIds?.length || 0) - (state.dailyTask?.completedReviewIds?.length || 0));
   return state.dailyTask;
 }
@@ -259,12 +302,29 @@ function recordResult(wordId, result, stage, previousState, nextState) {
   if (!bucket.includes(wordId)) bucket.push(wordId);
   if (result !== 'good' && !record.weakIds.includes(wordId)) record.weakIds.push(wordId);
   record.results[String(wordId)] = result;
+  if (stage === 'new' && state.dailyTask) {
+    const task = normalizeTask(state.dailyTask);
+    const batch = getBatch(task);
+    if (batch) {
+      state.dailyTask = {
+        ...task,
+        batches: task.batches.map((item) => String(item.id) === String(batch.id)
+          ? { ...item, resultById: { ...(item.resultById || {}), [String(wordId)]: result } }
+          : item),
+      };
+    }
+  }
   const wasUnseen = previousState.status === 'unseen';
   if (wasUnseen && stage === 'new') state.stats.totalLearned += 1;
   if (stage !== 'new') state.stats.totalReviewed += 1;
   state.stats.todayLearned = record.learnedIds.length;
   state.stats.todayReviewed = record.reviewedIds.length;
-  state.stats.weakWords = getMistakeWords(studyPool(), state.wordStates).length;
+  state.stats.uniqueNewWordsToday = record.learnedIds.length;
+  state.stats.reviewCardsShown = record.reviewedIds.length;
+  state.stats.weakWordsToday = record.weakIds.length;
+  state.stats.plannedBatchSize = state.stats.plannedBatchSize || state.dailyTask?.batchSize || state.settings.dailyNew;
+  state.stats.extraNewWordsToday = Math.max(0, state.stats.uniqueNewWordsToday - state.stats.plannedBatchSize);
+  state.stats.weakWords = Object.values(state.wordStates || {}).filter((item) => item.status !== 'hidden' && (Number(item.mistakeCount) > 0 || Number(item.wrongCount) > 0 || item.familiarity === 'vague')).length;
   if (previousState.status !== 'mastered' && nextState.status === 'mastered') state.stats.totalMastered += 1;
   state.stats.lastStudyDate = dateKey();
   state.stats.streakDays = calculateStreak(state.history, dateKey());
@@ -288,7 +348,7 @@ function renderTopbar({ study = false } = {}) {
     const percent = Math.round((Math.min(queueIndex, total) / Math.max(total, 1)) * 100);
     return `<header class="study-topbar">
       ${button(icons.close, 'home', 'icon-button icon-button--quiet', 'aria-label="退出学习"')}
-      <div class="study-progress-copy"><span>${state.sessionMode === 'review' ? '今日复习' : '今日学习'}</span><strong>${String(current).padStart(2, '0')} / ${String(total).padStart(2, '0')}</strong></div>
+      <div class="study-progress-copy"><span>${state.sessionMode === 'review' ? (state.reviewScope === 'batch' ? '本组复习' : '今日复习') : '今日学习'}</span><strong>${String(current).padStart(2, '0')} / ${String(total).padStart(2, '0')}</strong></div>
       ${button(state.favorites.includes(currentWord().id) ? icons.heartFill : icons.heart, 'favorite', `icon-button icon-button--quiet ${state.favorites.includes(currentWord().id) ? 'is-favorite' : ''}`, `aria-label="${state.favorites.includes(currentWord().id) ? '取消收藏' : '收藏'}"`)}
       <div class="study-progress-track" aria-label="学习进度"><span style="--progress:${percent / 100}"></span></div>
     </header>`;
@@ -301,16 +361,21 @@ function renderTopbar({ study = false } = {}) {
 
 function renderHome() {
   const task = state.dailyTask || ensureDailyTask();
-  const remaining = Math.max((task?.newWordIds?.length || 0) - (task?.completedNewIds?.length || 0), 0);
+  const batch = activeBatch(task);
+  const remaining = Math.max((batch?.newWordIds?.length || task?.newWordIds?.length || 0) - (batch?.completedNewIds?.length || task?.completedNewIds?.length || 0), 0);
   const reviewRemaining = getPendingReviewIds(task).length;
+  const batchReviewRemaining = getPendingBatchReviewIds(task, batch?.id).length;
+  const batchComplete = batch?.status === 'complete' || batchHasCompletedNewWords(task);
+  const canContinueBatch = batchComplete && hasUnseenWords();
   const dailyInProgress = state.sessionMode === 'daily' && !task?.completed && hasPendingSessionItems();
   const reviewInProgress = state.sessionMode === 'review' && hasPendingSessionItems();
-  const studyLabel = task?.completed ? '再看一遍' : dailyInProgress ? '继续背词' : '开始背词';
+  const studyAction = batchComplete ? 'continue-batch' : 'start';
+  const studyLabel = batchComplete ? (canContinueBatch ? '继续背词' : '本组已完成') : task?.completed ? '再看一遍' : dailyInProgress ? '继续背词' : '开始背词';
   const reviewLabel = reviewInProgress ? '继续复习' : reviewRemaining ? '开始复习' : '今日已复习';
   const reviewButtonLabel = reviewRemaining ? `${reviewLabel} · ${reviewRemaining}` : reviewLabel;
   const reviewDisabled = !reviewRemaining && !reviewInProgress;
-  const reviewNote = reviewRemaining ? `${reviewRemaining} 个词待复习，可单独完成复习。` : task?.reviewWordIds?.length ? '今日到期复习已完成，可开始新词。' : '今天没有到期复习，直接开始新词。';
-  const isDone = Boolean(task?.completed);
+  const reviewNote = reviewRemaining ? `${reviewRemaining} 个词待复习${batchReviewRemaining ? `，本组有 ${batchReviewRemaining} 个重点` : ''}。` : task?.reviewWordIds?.length || task?.reviewPoolIds?.length ? '今日需要强化的词已经复习，可开始新词。' : '今天没有到期复习，直接开始新词。';
+  const isDone = Boolean(task?.completed && !batchComplete);
   return `<div class="screen home-screen">
     ${renderTopbar()}
     <div class="home-content">
@@ -325,10 +390,10 @@ function renderHome() {
         <div><span class="exam-kicker">距离考试</span><strong>${daysUntil(state.settings.examDate)}<small> 天</small></strong></div>
       </section>
       <section class="today-panel">
-        <div class="panel-heading"><div><span class="panel-label">今日安排</span><h2>${isDone ? '今天已经完成' : '按自己的节奏来'}</h2></div><span class="panel-meta">${state.settings.dailyNew} 个新词</span></div>
-        <div class="study-counts"><div><strong>${state.dueCount}</strong><span>待复习</span></div><div><strong>${remaining}</strong><span>${isDone ? '已完成' : '新单词'}</span></div></div>
+        <div class="panel-heading"><div><span class="panel-label">今日安排</span><h2>${batchComplete ? '这一组已经完成' : isDone ? '今天已经完成' : '按自己的节奏来'}</h2></div><span class="panel-meta">${batch?.newWordIds?.length || state.settings.dailyNew} 个新词 / 组</span></div>
+        <div class="study-counts"><div><strong>${reviewRemaining}</strong><span>待复习</span></div><div><strong>${remaining}</strong><span>${batchComplete ? '本组已完成' : isDone ? '已完成' : '本组新词'}</span></div></div>
         <div class="today-actions">
-          ${button(`<span>${studyLabel}</span>${icons.arrow}`, 'start', 'primary-button today-action', `aria-label="${studyLabel}"`)}
+          ${button(`<span>${studyLabel}${batchComplete && canContinueBatch ? ` · ${state.settings.dailyNew}` : ''}</span>${batchComplete && !canContinueBatch ? icons.check : icons.arrow}`, studyAction, 'primary-button today-action', `aria-label="${studyLabel}"${batchComplete && !canContinueBatch ? ' disabled' : ''}`)}
           ${button(`<span>${reviewButtonLabel}</span>${reviewDisabled ? icons.check : icons.arrow}`, 'start-review', 'secondary-button today-action', `aria-label="${reviewDisabled ? '今日已完成复习' : reviewButtonLabel}"${reviewDisabled ? ' disabled' : ''}`)}
         </div>
         <p class="panel-note">${reviewNote}</p>
@@ -659,7 +724,7 @@ function renderStudy() {
     ${renderTopbar({ study: true })}
     <main class="study-main${state.revealed ? ' study-main--revealed' : ''}">
       <div class="word-stage">
-        <span class="eyebrow">${taskStageForIndex() === 'review' ? '到期复习' : taskStageForIndex() === 'weak' ? '薄弱强化' : '今日新词'}</span>
+        <span class="eyebrow">${taskStageForIndex() === 'review' ? '到期复习' : taskStageForIndex() === 'batch-review' ? '本组复习' : taskStageForIndex() === 'weak' ? '薄弱强化' : '今日新词'}</span>
         <div class="word-line"><h1>${escapeHtml(word.word)}</h1>${button(icons.sound, 'speak', 'sound-button', `aria-label="播放${accentLabel}发音：${escapeHtml(word.word)}"`)}</div>
         <p class="phonetic${phonetic ? '' : ' phonetic--pending'}">${escapeHtml(phonetic || '音标待补充')}</p>
         <div class="word-study-meta">${pos.length ? `<span class="word-pos">${escapeHtml(pos.join(' / '))}</span>` : ''}${renderWordTags(word)}</div>
@@ -681,7 +746,8 @@ function renderRecallPrompt() {
 
 function renderAnswer(word) {
   const wordState = stateForWord(state, word.id);
-  const content = getAnswerContent(word, { rating: state.rating, stage: taskStageForIndex(), wordState, targetScore: state.settings.targetScore });
+  const stage = taskStageForIndex();
+  const content = getAnswerContent(word, { rating: state.rating, stage: stage === 'batch-review' ? 'review' : stage, wordState, targetScore: state.settings.targetScore });
   const primary = content.primaryMeaning;
   const moreContent = renderMoreContent(content.more);
   return `<section class="answer-stack" aria-live="polite">
@@ -702,12 +768,36 @@ function renderComplete() {
   const history = state.history[dateKey()] || {};
   const weakCount = history.weakIds?.length || state.weakToday.length;
   const reviewMode = state.sessionMode === 'review';
-  const reviewCount = state.dailyTask?.reviewWordIds?.length || state.stats.todayReviewed;
-  const pendingNew = Math.max((state.dailyTask?.newWordIds?.length || 0) - (state.dailyTask?.completedNewIds?.length || 0), 0);
+  const batch = activeBatch();
+  const batchFinished = Boolean(batch?.status === 'complete' || batchHasCompletedNewWords(state.dailyTask));
+  const batchComplete = !reviewMode && (state.completionType === 'batch' || state.dailyTask?.currentStage === 'batch-complete' || batchFinished);
+  const reviewScope = state.reviewScope || 'daily';
+  const reviewCount = new Set(state.queue || []).size || state.stats.todayReviewed;
+  const pendingNew = hasUnseenWords();
+  const pendingBatchReview = batch ? getPendingBatchReviewIds(state.dailyTask, batch.id).length : 0;
+  const resultCounts = batchComplete && batch
+    ? Object.values(batch.resultById || {}).reduce((counts, result) => {
+      if (result === 'good') counts.known += 1;
+      if (result === 'hard') counts.fuzzy += 1;
+      if (result === 'again') counts.unknown += 1;
+      return counts;
+    }, { known: 0, fuzzy: 0, unknown: 0 })
+    : null;
+  const batchBreakdown = resultCounts
+    ? `<div class="batch-result-breakdown" aria-label="本组评分统计"><span><strong>${resultCounts.known}</strong><small>认识</small></span><span><strong>${resultCounts.fuzzy}</strong><small>模糊</small></span><span><strong>${resultCounts.unknown}</strong><small>不认识</small></span></div>`
+    : '';
+  const heading = batchComplete ? '这一组完成了' : reviewMode ? (reviewScope === 'batch' ? '本组复习完成' : '今日复习完成') : '今日完成';
+  const copy = batchComplete
+    ? pendingBatchReview
+      ? `${batch?.newWordIds?.length || state.stats.todayLearned} 个新词已记录，${pendingBatchReview} 个词留在本组复习池。`
+      : `${batch?.newWordIds?.length || state.stats.todayLearned} 个新词已记录，本组无需强化。`
+    : reviewMode
+      ? `复习 ${reviewCount} 个词，记忆又稳了一步。`
+      : '每一次积累，都算数。';
   return `<div class="screen complete-screen">
-    <main class="complete-main"><div class="completion-ring"><span>${icons.check}</span></div><p class="eyebrow">${state.settings.exam} · ${reviewMode ? '今日复习' : '今日学习'}</p><h1>${reviewMode ? '今日复习完成' : '今日完成'}</h1><p class="complete-copy">${reviewMode ? `复习 ${reviewCount} 个词，记忆又稳了一步。` : '每一次积累，都算数。'}</p>
-      <div class="complete-stats"><div><strong>${state.stats.todayLearned}</strong><span>今日新学</span></div><span></span><div><strong>${state.stats.todayReviewed}</strong><span>今日复习</span></div><span></span><div><strong>${weakCount}</strong><span>薄弱强化</span></div><span></span><div><strong>${state.stats.streakDays}</strong><span>连续学习</span></div></div>
-      <div class="complete-actions">${button(`<span>返回首页</span>${icons.arrow}`, 'home', 'primary-button complete-button')}${reviewMode && pendingNew ? button(`<span>继续背新词</span>${icons.arrow}`, 'start', 'secondary-button complete-button complete-button--secondary') : ''}</div>
+    <main class="complete-main"><div class="completion-ring"><span>${icons.check}</span></div><p class="eyebrow">${state.settings.exam} · ${batchComplete ? '本组新词' : reviewMode ? (reviewScope === 'batch' ? '本组复习' : '今日复习') : '今日学习'}</p><h1>${heading}</h1><p class="complete-copy">${copy}</p>${batchBreakdown}
+      <div class="complete-stats"><div><strong>${state.stats.uniqueNewWordsToday || state.stats.todayLearned}</strong><span>今日新学</span></div><span></span><div><strong>${state.stats.reviewCardsShown || state.stats.todayReviewed}</strong><span>复习卡片</span></div><span></span><div><strong>${state.stats.weakWordsToday || weakCount}</strong><span>待强化</span></div><span></span><div><strong>${state.stats.streakDays}</strong><span>连续学习</span></div></div>
+      <div class="complete-actions">${button(`<span>返回首页</span>${icons.arrow}`, 'home', 'primary-button complete-button')}${batchComplete && pendingBatchReview ? button(`<span>复习本组 · ${pendingBatchReview}</span>${icons.arrow}`, 'review-batch', 'secondary-button complete-button complete-button--secondary') : ''}${batchFinished && pendingNew ? button(`<span>继续背词 · ${state.settings.dailyNew}</span>${icons.arrow}`, 'continue-batch', 'secondary-button complete-button complete-button--secondary') : ''}${reviewMode && !batchFinished && pendingNew ? button(`<span>继续背新词</span>${icons.arrow}`, 'start', 'secondary-button complete-button complete-button--secondary') : ''}</div>
     </main><p class="sample-note">词义与频次来自已记录来源；例句、音标和真题出处将在内容审核后补充。</p>
   </div>`;
 }
@@ -999,7 +1089,8 @@ function toggleAnswerMore() {
 
 function prepareNextBatch() {
   ensureDailyTask();
-  const task = state.dailyTask;
+  const task = normalizeTask(state.dailyTask);
+  state.dailyTask = task;
   if (!task) return;
   if (task.completed) {
     const replay = [...task.reviewWordIds, ...task.newWordIds, ...task.weakWordIds];
@@ -1007,7 +1098,7 @@ function prepareNextBatch() {
     state.queueStages = state.queue.map((id) => task.reviewWordIds.includes(id) ? 'review' : task.weakWordIds.includes(id) ? 'weak' : 'new');
     state.sessionReplay = true;
   } else {
-    const pending = pendingTaskQueue(task);
+    const pending = pendingDailyQueue(task);
     state.queue = pending.pending;
     state.queueStages = pending.stages;
     state.sessionReplay = false;
@@ -1019,6 +1110,37 @@ function prepareNextBatch() {
   state.revealed = false;
   state.rating = null;
   state.moreOpen = false;
+}
+
+function startNewBatch() {
+  ensureDailyTask();
+  const task = appendNewBatch(state.dailyTask, {
+    words: studyPool(),
+    wordStates: state.wordStates,
+    settings: state.settings,
+    now: Date.now(),
+  });
+  if (!task) {
+    showToast('已经没有新的未学习词了。');
+    return false;
+  }
+  state.dailyTask = task;
+  const batch = activeBatch(task);
+  state.queue = [...(batch?.newWordIds || [])];
+  state.queueStages = state.queue.map(() => 'new');
+  state.sessionMode = 'daily';
+  state.sessionReplay = false;
+  state.queueIndex = 0;
+  state.completed = [];
+  state.weakToday = [];
+  state.revealed = false;
+  state.rating = null;
+  state.moreOpen = false;
+  state.completionType = null;
+  state.reviewScope = null;
+  state.stats.plannedBatchSize = state.stats.plannedBatchSize || state.dailyTask.batchSize;
+  state.stats.extraNewWordsToday = Math.max(0, (state.stats.uniqueNewWordsToday || 0) - state.stats.plannedBatchSize);
+  return true;
 }
 
 function startSession() {
@@ -1042,10 +1164,10 @@ function startSession() {
 function prepareReviewSession() {
   ensureDailyTask();
   const task = state.dailyTask;
-  const reviewIds = getPendingReviewIds(task);
-  if (!reviewIds.length) return false;
-  state.queue = reviewIds;
-  state.queueStages = reviewIds.map(() => 'review');
+  const entries = getPendingReviewEntries(task);
+  if (!entries.length) return false;
+  state.queue = entries.map((entry) => entry.id);
+  state.queueStages = entries.map((entry) => entry.stage);
   state.queueIndex = 0;
   state.completed = [];
   state.weakToday = [];
@@ -1054,6 +1176,29 @@ function prepareReviewSession() {
   state.moreOpen = false;
   state.sessionReplay = false;
   state.sessionMode = 'review';
+  state.reviewScope = 'daily';
+  state.completionType = null;
+  return true;
+}
+
+function prepareBatchReviewSession() {
+  ensureDailyTask();
+  const task = state.dailyTask;
+  const batch = activeBatch(task);
+  const reviewIds = batch ? getPendingBatchReviewIds(task, batch.id) : [];
+  if (!reviewIds.length) return false;
+  state.queue = reviewIds;
+  state.queueStages = reviewIds.map(() => 'batch-review');
+  state.queueIndex = 0;
+  state.completed = [];
+  state.weakToday = [];
+  state.revealed = false;
+  state.rating = null;
+  state.moreOpen = false;
+  state.sessionReplay = false;
+  state.sessionMode = 'review';
+  state.reviewScope = 'batch';
+  state.completionType = null;
   return true;
 }
 
@@ -1062,6 +1207,21 @@ function startReviewSession() {
   const canResume = state.sessionMode === 'review' && state.queue.length && state.queueIndex < state.queue.length;
   if (!canResume && !prepareReviewSession()) {
     showToast('今日已经复习完成。');
+    return;
+  }
+  state.screen = 'study';
+  state.revealed = false;
+  state.rating = null;
+  state.moreOpen = false;
+  preloadUpcomingPronunciations();
+  persistRender();
+}
+
+function startBatchReviewSession() {
+  ensureDailyTask();
+  const canResume = state.sessionMode === 'review' && state.reviewScope === 'batch' && state.queue.length && state.queueIndex < state.queue.length;
+  if (!canResume && !prepareBatchReviewSession()) {
+    showToast('本组暂时没有待复习的词。');
     return;
   }
   state.screen = 'study';
@@ -1365,13 +1525,20 @@ function toggleHiddenById(wordId) {
     wordState.hiddenFromStatus = wordState.status;
     wordState.status = 'hidden';
     if (state.dailyTask) {
-      const completed = new Set([...(state.dailyTask.completedReviewIds || []), ...(state.dailyTask.completedNewIds || []), ...(state.dailyTask.completedWeakIds || [])]);
+      const task = normalizeTask(state.dailyTask);
+      const completed = new Set([...(task.completedReviewIds || []), ...(task.completedNewIds || []), ...(task.completedWeakIds || []), ...(task.completedReviewPoolIds || [])]);
       const keepPending = (ids) => (ids || []).filter((id) => id !== wordId || completed.has(id));
       state.dailyTask = {
-        ...state.dailyTask,
-        reviewWordIds: keepPending(state.dailyTask.reviewWordIds),
-        newWordIds: keepPending(state.dailyTask.newWordIds),
-        weakWordIds: keepPending(state.dailyTask.weakWordIds),
+        ...task,
+        reviewWordIds: keepPending(task.reviewWordIds),
+        newWordIds: keepPending(task.newWordIds),
+        weakWordIds: keepPending(task.weakWordIds),
+        reviewPoolIds: keepPending(task.reviewPoolIds),
+        batches: task.batches.map((batch) => ({
+          ...batch,
+          newWordIds: keepPending(batch.newWordIds),
+          reviewPoolIds: keepPending(batch.reviewPoolIds),
+        })),
       };
       const nextQueue = [];
       const nextStages = [];
@@ -1399,7 +1566,14 @@ function rateWord(rating) {
   if (!word) return;
   const id = word.id;
   const stage = taskStageForIndex();
-  const update = applyStudyRating(state, { wordId: id, stage, rating });
+  const batchId = state.dailyTask?.activeBatchId;
+  const update = applyStudyRating(state, {
+    wordId: id,
+    stage,
+    rating,
+    batchId,
+    requeueWeak: false,
+  });
   if (!update) return;
   const { before, after, result } = update;
   recordResult(id, result, stage, before, after);
@@ -1418,8 +1592,23 @@ function nextWord() {
   pronunciationService.stop();
   const id = currentWord().id;
   const stage = taskStageForIndex();
-  const advance = advanceStudySession(state, { wordId: id, stage, sessionMode: state.sessionMode });
+  const advance = advanceStudySession(state, {
+    wordId: id,
+    stage,
+    sessionMode: state.sessionMode,
+    completeTask: state.sessionMode !== 'daily',
+    batchId: state.dailyTask?.activeBatchId,
+  });
   if (advance.completed) {
+    if (state.sessionMode === 'daily' && !state.sessionReplay && batchHasCompletedNewWords(state.dailyTask)) {
+      state.dailyTask = completeBatch(state.dailyTask, state.dailyTask.activeBatchId, Date.now());
+      state.completionType = 'batch';
+      state.reviewScope = null;
+    } else if (state.sessionMode === 'review') {
+      state.completionType = 'review';
+    } else if (state.sessionMode === 'daily') {
+      state.completionType = 'daily';
+    }
     state.screen = 'complete';
   } else {
     state.revealed = false;
@@ -1451,8 +1640,30 @@ function handleAction(event) {
   if (!target) return;
   if (target.matches('a[href="#"]')) event.preventDefault();
   const action = target.dataset.action;
+  const guardedActions = new Set(['rate-unknown', 'rate-fuzzy', 'rate-known', 'next', 'undo']);
+  const point = Number.isFinite(event.clientX) && Number.isFinite(event.clientY) ? { x: event.clientX, y: event.clientY } : null;
+  if (point && lastActionGesture && Date.now() - lastActionGesture.time < 80 && guardedActions.has(action)) {
+    const dx = point.x - lastActionGesture.point.x;
+    const dy = point.y - lastActionGesture.point.y;
+    // Suppress a second event from the same physical tap, while allowing a
+    // deliberate fast rating -> next action on a different control.
+    const threshold = action === lastActionGesture.action ? 24 : 10;
+    if (Math.hypot(dx, dy) < threshold) {
+      lastActionGesture = null;
+      return;
+    }
+  }
+  if (point && guardedActions.has(action)) lastActionGesture = { time: Date.now(), point };
   if (action === 'start') startSession();
+  if (action === 'continue-batch') {
+    if (startNewBatch()) {
+      state.screen = 'study';
+      preloadUpcomingPronunciations();
+      persistRender();
+    }
+  }
   if (action === 'start-review') startReviewSession();
+  if (action === 'review-batch') startBatchReviewSession();
   if (action === 'home') goHome();
   if (action === 'settings') { settingsOpen = true; renderApp(); focusSettingsField(); }
   if (action === 'save-settings') {
