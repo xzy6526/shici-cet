@@ -33,13 +33,25 @@ jobs:
         run: npm run validate:vocabulary
       - name: Prepare static site
         shell: bash
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
           mkdir -p dist/vendor
           cp index.html favicon.svg dist/
           cp -R src assets dist/
           cp node_modules/@supabase/supabase-js/dist/umd/supabase.js dist/vendor/supabase.js
-          printf 'window.__SHICI_ENV__={};\n' > dist/runtime-config.js
+          node <<'NODE'
+          import { writeFileSync } from 'node:fs';
+
+          const config = {
+            VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || '',
+            VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || '',
+          };
+
+          writeFileSync('dist/runtime-config.js', `window.__SHICI_ENV__=${JSON.stringify(config)};\n`);
+          NODE
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
