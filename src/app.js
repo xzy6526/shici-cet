@@ -371,8 +371,7 @@ function renderHome() {
   const reviewInProgress = state.sessionMode === 'review' && hasPendingSessionItems();
   const studyAction = batchComplete ? 'continue-batch' : 'start';
   const studyLabel = batchComplete ? (canContinueBatch ? '继续背词' : '本组已完成') : task?.completed ? '再看一遍' : dailyInProgress ? '继续背词' : '开始背词';
-  const reviewCompleted = batchComplete || Boolean(task?.completedReviewIds?.length || task?.completedReviewPoolIds?.length);
-  const reviewDisabled = !reviewRemaining && !reviewInProgress && reviewCompleted;
+  const reviewDisabled = !reviewRemaining && !reviewInProgress && batchComplete;
   const reviewLabel = reviewInProgress ? '继续复习' : reviewDisabled ? '今日已复习' : '开始复习';
   const reviewButtonLabel = reviewRemaining ? `${reviewLabel} · ${reviewRemaining}` : reviewLabel;
   const reviewNote = reviewRemaining ? `${reviewRemaining} 个词待复习${batchReviewRemaining ? `，本组有 ${batchReviewRemaining} 个重点` : ''}。` : task?.reviewWordIds?.length || task?.reviewPoolIds?.length ? '今日需要强化的词已经复习，可开始新词。' : '今天没有到期复习，直接开始新词。';

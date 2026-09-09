@@ -8,6 +8,13 @@ try {
     const page = await browser.newPage({ viewport: { width, height: 900 }, colorScheme: width === 390 ? 'dark' : 'light' });
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    await page.addInitScript(() => {
+      const seed = sessionStorage.getItem('review-entry-test-seed');
+      if (seed) {
+        localStorage.setItem('shici-cet-state-v3', seed);
+        sessionStorage.removeItem('review-entry-test-seed');
+      }
+    });
     await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173/');
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: 'networkidle' });
@@ -17,6 +24,18 @@ try {
     assert.equal(await review().innerText(), '开始复习');
     const arrow = await review().locator('svg').innerHTML();
     const before = await saved();
+    await page.evaluate(() => {
+      const state = JSON.parse(localStorage.getItem('shici-cet-state-v3'));
+      // A previous review must not mark the unfinished current batch complete.
+      state.dailyTask.reviewWordIds = [999];
+      state.dailyTask.completedReviewIds = [999];
+      sessionStorage.setItem('review-entry-test-seed', JSON.stringify(state));
+    });
+    await page.reload({ waitUntil: 'networkidle' });
+    assert.equal(await review().isEnabled(), true, 'past review records must not disable the current unfinished batch');
+    assert.equal(await review().innerText(), '开始复习');
+    await page.evaluate((state) => sessionStorage.setItem('review-entry-test-seed', JSON.stringify(state)), before);
+    await page.reload({ waitUntil: 'networkidle' });
     await review().focus();
     await page.keyboard.press('Enter');
     assert.match(await page.locator('.toast').innerText(), /暂时没有待复习的词/);
