@@ -1,0 +1,203 @@
+{
+  "generatedAt": "2026-09-09T03:12:04.621Z",
+  "scope": "studyWords runtime view",
+  "fullVocabulary": 4025,
+  "studyPool": 3861,
+  "total": 3861,
+  "coverage": {
+    "ukIpa": {
+      "count": 3633,
+      "total": 3861,
+      "percent": 94.09
+    },
+    "usIpa": {
+      "count": 3841,
+      "total": 3861,
+      "percent": 99.48
+    },
+    "ukAudio": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "usAudio": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "partsOfSpeech": {
+      "count": 3825,
+      "total": 3861,
+      "percent": 99.07
+    },
+    "primaryMeaning": {
+      "count": 3861,
+      "total": 3861,
+      "percent": 100
+    },
+    "multipleMeanings": {
+      "count": 3377,
+      "total": 3861,
+      "percent": 87.46
+    },
+    "cetPriorityMeaning": {
+      "count": 3861,
+      "total": 3861,
+      "percent": 100
+    },
+    "collocations": {
+      "count": 8,
+      "total": 3861,
+      "percent": 0.21
+    },
+    "examples": {
+      "count": 2418,
+      "total": 3861,
+      "percent": 62.63
+    },
+    "roots": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "affixes": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "rootsOrAffixes": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "wordFamily": {
+      "count": 3,
+      "total": 3861,
+      "percent": 0.08
+    },
+    "confusableWords": {
+      "count": 1,
+      "total": 3861,
+      "percent": 0.03
+    },
+    "rareMeanings": {
+      "count": 3,
+      "total": 3861,
+      "percent": 0.08
+    },
+    "examExamples": {
+      "count": 0,
+      "total": 3861,
+      "percent": 0
+    },
+    "sources": {
+      "count": 3861,
+      "total": 3861,
+      "percent": 100
+    }
+  },
+  "quality": {
+    "phonetics": {
+      "verified": 3630,
+      "derived": 0,
+      "partial": 214,
+      "missing": 17
+    },
+    "phoneticUK": {
+      "verified": 3633,
+      "derived": 0,
+      "partial": 0,
+      "missing": 228
+    },
+    "phoneticUS": {
+      "verified": 3841,
+      "derived": 0,
+      "partial": 0,
+      "missing": 20
+    },
+    "audio": {
+      "verified": 0,
+      "derived": 0,
+      "partial": 0,
+      "missing": 3861
+    },
+    "partsOfSpeech": {
+      "verified": 3825,
+      "derived": 0,
+      "partial": 0,
+      "missing": 36
+    },
+    "meanings": {
+      "verified": 3861,
+      "derived": 0,
+      "partial": 0,
+      "missing": 0
+    },
+    "collocations": {
+      "verified": 0,
+      "derived": 8,
+      "partial": 0,
+      "missing": 3853
+    },
+    "examples": {
+      "verified": 2416,
+      "derived": 2,
+      "partial": 0,
+      "missing": 1443
+    },
+    "examExamples": {
+      "verified": 0,
+      "derived": 0,
+      "partial": 0,
+      "missing": 3861
+    },
+    "roots": {
+      "verified": 0,
+      "derived": 0,
+      "partial": 0,
+      "missing": 3861
+    },
+    "affixes": {
+      "verified": 0,
+      "derived": 0,
+      "partial": 0,
+      "missing": 3861
+    },
+    "wordFamily": {
+      "verified": 0,
+      "derived": 3,
+      "partial": 0,
+      "missing": 3858
+    },
+    "confusableWords": {
+      "verified": 0,
+      "derived": 1,
+      "partial": 0,
+      "missing": 3860
+    },
+    "rareMeanings": {
+      "verified": 0,
+      "derived": 3,
+      "partial": 0,
+      "missing": 3858
+    },
+    "cetPriorityMeaning": {
+      "verified": 0,
+      "derived": 3861,
+      "partial": 0,
+      "missing": 0
+    },
+    "sources": {
+      "verified": 3861,
+      "derived": 0,
+      "partial": 0,
+      "missing": 0
+    }
+  },
+  "notes": [
+    "Verified means a retained source record exists for this field.",
+    "Derived means project-curated or source-derived data without a field-level primary citation.",
+    "Partial means at least one subfield is present while another remains unavailable.",
+    "Missing is intentionally empty; this audit does not infer content."
+  ]
+}

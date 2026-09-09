@@ -1,0 +1,4 @@
+[
+  { "word": "economic", "status": "missing", "currentPresent": false, "candidateCetLevel": "待核验", "reason": "用户提出的候选词；固定 CETVocabulary 快照中未出现。", "evidenceSource": "https://github.com/exam-data/CETVocabulary/tree/6bd3fcb521ce3767ad612cc9160ef56f2cd9b26a", "recommendedAction": "取得可公开核验的 CET-4 词表来源后比对，确认后才纳入独立候选变更。", "nextAction": "取得可公开核验的 CET-4 词表来源后比对，确认后才纳入独立候选变更。" },
+  { "word": "economical", "status": "missing", "currentPresent": false, "candidateCetLevel": "待核验", "reason": "用户提出的候选词；固定 CETVocabulary 快照中未出现。", "evidenceSource": "https://github.com/exam-data/CETVocabulary/tree/6bd3fcb521ce3767ad612cc9160ef56f2cd9b26a", "recommendedAction": "取得可公开核验的 CET-4 词表来源后比对，确认后才纳入独立候选变更。", "nextAction": "取得可公开核验的 CET-4 词表来源后比对，确认后才纳入独立候选变更。" }
+]

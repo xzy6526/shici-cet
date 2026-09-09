@@ -1,0 +1,7 @@
+{
+  "generatedAt": "2026-09-09T03:12:03.860Z",
+  "input": "data/cet_full_list.source.json",
+  "output": "runtime normalization only; no raw data overwritten",
+  "count": 4025,
+  "stableIds": true
+}

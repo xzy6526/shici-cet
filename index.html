@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f5f6f1" />
+    <title>拾词 · CET-4</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/styles.css" />
+    <script src="./vendor/supabase.js"></script>
+    <script src="./runtime-config.js"></script>
+    <script>
+      (() => {
+        try {
+          const saved = JSON.parse(localStorage.getItem('shici-cet-state-v3') || '{}');
+          const preference = saved.settings?.themePreference;
+          const dark = preference === 'dark' || (preference !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1b201a' : '#f5f6f1');
+        } catch { document.documentElement.dataset.theme = 'light'; }
+      })();
+    </script>
+  </head>
+  <body>
+    <main id="app" aria-live="polite"></main>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

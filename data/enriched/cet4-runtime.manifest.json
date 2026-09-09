@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-09-09T03:12:04.239Z",
+  "base": "src/words.js",
+  "overlays": [
+    "src/reviewed-word-content.js",
+    "src/cet-priority-overlay.js",
+    "src/lexical-content.js",
+    "src/phonetics.js"
+  ],
+  "runtimeCount": 4025,
+  "appliedOverrides": [
+    "maintain",
+    "issue",
+    "address",
+    "schedule",
+    "significant",
+    "approach",
+    "charge",
+    "figure"
+  ],
+  "heldOutOverrides": [
+    "economic",
+    "economical"
+  ],
+  "stableIds": true
+}
