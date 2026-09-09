@@ -4,6 +4,17 @@ import { markTaskItemComplete, updateTaskWeakWords } from './tasks.js';
 
 const ratingToResult = { unknown: 'again', fuzzy: 'hard', known: 'good' };
 
+export function getStudyProgress(state = {}) {
+  const queue = Array.isArray(state.queue) ? state.queue : [];
+  const stages = Array.isArray(state.queueStages) ? state.queueStages : [];
+  const baseQueueTotal = stages.length ? stages.filter((stage) => stage !== 'weak').length : 0;
+  const task = state.dailyTask;
+  const taskTotal = (task?.reviewWordIds?.length || 0) + (task?.newWordIds?.length || 0);
+  const total = Math.max(1, baseQueueTotal || taskTotal || queue.length);
+  const index = Math.max(0, Number(state.queueIndex) || 0);
+  return { current: Math.min(index + 1, total), total };
+}
+
 export function applyStudyRating(state, { wordId, stage, rating, now = Date.now() } = {}) {
   const result = ratingToResult[rating];
   if (!result) return null;

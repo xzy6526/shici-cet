@@ -1,11 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { migrateState } from '../src/domain.js';
-import { applyStudyRating, advanceStudySession } from '../src/study-session.js';
+import { applyStudyRating, advanceStudySession, getStudyProgress } from '../src/study-session.js';
 import { createDailyTask } from '../src/tasks.js';
 import { studyWords } from '../src/words.js';
 
 const words = studyWords;
+
+test('study progress ignores weak reinforcements in the daily total', () => {
+  const state = { queue: [1, 2, 3, 2], queueStages: ['new', 'new', 'new', 'weak'], queueIndex: 0 };
+  assert.deepEqual(getStudyProgress(state), { current: 1, total: 3 });
+  state.queueIndex = 3;
+  assert.deepEqual(getStudyProgress(state), { current: 3, total: 3 });
+});
 
 function createSession() {
   const task = createDailyTask({ words, settings: { dailyNew: 50 }, now: 1_000 });

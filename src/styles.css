@@ -167,14 +167,14 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .library-item-action:hover, .library-item-action.is-favorite { color: var(--accent-dark); background: var(--accent-soft); }
 .library-item-actions > small::before { content: '频次 '; }
 
-.study-screen { background: var(--bg); }
+.study-screen { overflow: visible; background: var(--bg); }
 .study-topbar { position: relative; padding-top: max(21px, env(safe-area-inset-top)); }
 .study-progress-copy { display: grid; justify-items: center; gap: 4px; color: var(--muted); font-size: 11px; letter-spacing: .04em; }
 .study-progress-copy strong { color: var(--ink); font-size: 12px; letter-spacing: .02em; }
 .study-progress-track { position: absolute; top: 75px; right: 0; left: 0; height: 3px; overflow: hidden; border-radius: 4px; background: var(--line); }
 .study-progress-track span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform: scale3d(var(--progress, 0), 1, 1); transform-origin: left center; transition: transform .28s ease; }
-.study-main { display: grid; min-height: calc(100dvh - 115px); place-items: center; width: min(100% - 40px, 740px); margin: 0 auto; padding: 72px 0 140px; }
-.study-main--revealed { place-items: start; padding-top: 54px; }
+.study-main { display: block; min-height: calc(100dvh - 115px); width: min(100% - 40px, 740px); margin: 0 auto; padding: 68px 0 180px; }
+.study-main--revealed { padding-top: 68px; }
 .word-stage { width: 100%; }
 .word-line { display: flex; align-items: center; gap: 15px; min-width: 0; margin-top: 20px; }
 .word-line h1 { min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: clamp(45px, 11vw, 74px); font-weight: 680; letter-spacing: -.075em; line-height: .97; }
@@ -186,7 +186,7 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .word-pos { color: var(--ink); font-size: 13px; font-weight: 750; }
 .word-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .word-tags span { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 4px 9px; background: var(--accent-soft); color: var(--accent-dark); font-size: 10px; font-weight: 750; letter-spacing: .02em; }
-.recall-prompt { margin-top: clamp(105px, 19vh, 180px); }
+.recall-prompt { position: fixed; z-index: 4; right: 0; bottom: 0; left: 0; width: min(calc(100% - 40px), 740px); margin: 0 auto; padding: 16px 0 max(12px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 96%, transparent); }
 .recall-prompt > p { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
 .rating-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .rating-button { display: grid; gap: 7px; min-height: 82px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 17px 12px; text-align: left; background: var(--surface); color: var(--ink); transition: transform .2s cubic-bezier(.2,.75,.2,1), border-color .2s ease, background .2s ease; }
@@ -233,7 +233,8 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .reveal-step:nth-child(3) { animation-delay: 100ms; }
 .reveal-step:nth-child(4) { animation-delay: 150ms; }
 @keyframes reveal-in { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
-.study-footer { position: fixed; z-index: 4; right: 0; bottom: max(17px, env(safe-area-inset-bottom)); left: 0; display: flex; align-items: center; justify-content: space-between; width: min(100% - 40px, 740px); margin: auto; }
+.study-footer { position: fixed; z-index: 4; right: 0; bottom: 0; left: 0; display: flex; align-items: center; justify-content: center; width: min(100%, 740px); margin: auto; padding: 10px 14px max(12px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 96%, transparent); }
+.study-footer .text-button { position: absolute; left: 14px; }
 .text-button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; border: 0; padding: 10px 0; background: transparent; color: var(--muted); font-size: 12px; }
 .text-button svg { width: 16px; }
 .next-button { min-width: 132px; }
@@ -381,6 +382,7 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 
 @media (max-width: 390px) {
   .topbar, .study-topbar, .study-main, .study-footer { width: min(100% - 28px, 740px); }
+  .recall-prompt { width: min(100% - 28px, 740px); }
   .home-content { width: min(100% - 28px, 680px); }
   .today-panel { padding: 22px; }
   .study-counts { gap: 30px; }

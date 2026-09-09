@@ -8,7 +8,7 @@ import { calculateStreak, createDailyTask, dateKey, daysUntilExam as taskDaysUnt
 import { scheduleReview } from './scheduler.js';
 import { getPhonetic, pronunciationService } from './pronunciation.js';
 import { createStorage } from './storage.js';
-import { advanceStudySession, applyStudyRating } from './study-session.js';
+import { advanceStudySession, applyStudyRating, getStudyProgress } from './study-session.js';
 import { authService } from './services/auth.js';
 import { createSyncService, hasMeaningfulLocalData } from './services/sync.js';
 import { createThemeService } from './services/theme.js';
@@ -277,11 +277,12 @@ function button(content, action, className = '', extra = '') {
 
 function renderTopbar({ study = false } = {}) {
   if (study) {
-    const progress = Math.min(state.queueIndex + 1, state.queue.length);
-    const percent = Math.round((state.queueIndex / Math.max(state.queue.length, 1)) * 100);
+    const { current, total } = getStudyProgress(state);
+    const queueIndex = Math.max(0, Number(state.queueIndex) || 0);
+    const percent = Math.round((Math.min(queueIndex, total) / Math.max(total, 1)) * 100);
     return `<header class="study-topbar">
       ${button(icons.close, 'home', 'icon-button icon-button--quiet', 'aria-label="退出学习"')}
-      <div class="study-progress-copy"><span>今日学习</span><strong>${String(progress).padStart(2, '0')} / ${String(state.queue.length).padStart(2, '0')}</strong></div>
+      <div class="study-progress-copy"><span>今日学习</span><strong>${String(current).padStart(2, '0')} / ${String(total).padStart(2, '0')}</strong></div>
       ${button(state.favorites.includes(currentWord().id) ? icons.heartFill : icons.heart, 'favorite', `icon-button icon-button--quiet ${state.favorites.includes(currentWord().id) ? 'is-favorite' : ''}`, `aria-label="${state.favorites.includes(currentWord().id) ? '取消收藏' : '收藏'}"`)}
       <div class="study-progress-track" aria-label="学习进度"><span style="--progress:${percent / 100}"></span></div>
     </header>`;

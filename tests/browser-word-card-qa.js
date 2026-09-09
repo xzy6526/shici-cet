@@ -78,6 +78,7 @@ async (page) => {
   check((await page.locator('.word-study-meta').innerText()).includes('n. / v.'), '揭晓前显示词性');
   check(!(await page.locator('.study-main').innerText()).includes('问题；议题'), '揭晓前不显示中文释义');
   check(await page.locator('.rating-button').count() === 3, '揭晓前三个评分按钮唯一显示');
+  const wordTopBeforeRating = (await page.locator('.word-line').boundingBox()).y;
 
   for (const width of [320, 375, 390, 430]) {
     await page.setViewportSize({ width, height: 844 });
@@ -97,6 +98,9 @@ async (page) => {
   }
 
   await page.locator('[data-action="rate-known"]').click();
+  check((await page.locator('.study-progress-copy strong').innerText()).includes('01 / 03'), '弱词插入不增加今日任务总数');
+  const wordTopAfterRating = (await page.locator('.word-line').boundingBox()).y;
+  check(Math.abs(wordTopAfterRating - wordTopBeforeRating) <= 1, '评分后单词位置保持稳定');
   const knownText = await page.locator('.answer-stack').innerText();
   check(knownText.includes('问题；议题') && knownText.includes('示例语境'), '认识：显示核心义和一个示例语境');
   check(!knownText.includes('常用搭配') && !knownText.includes('这样记'), '认识：默认保持轻量');
@@ -113,11 +117,11 @@ async (page) => {
   await page.reload();
   await page.locator('.study-screen').waitFor();
   check((await page.locator('.word-line h1').innerText()) === 'address', '刷新恢复当前单词');
-  check(await page.locator('.answer-stack').count() === 1 && (await page.locator('.study-progress-copy strong').innerText()).includes('02 / 04'), '刷新恢复揭晓状态、进度和弱词队列');
+  check(await page.locator('.answer-stack').count() === 1 && (await page.locator('.study-progress-copy strong').innerText()).includes('02 / 03'), '刷新恢复揭晓状态、进度和弱词队列');
 
   await page.locator('[data-action="next"]').click();
   check((await page.locator('.word-line h1').innerText()) === 'charge', '下一个只推进到 charge');
-  check((await page.locator('.study-progress-copy strong').innerText()).includes('03 / 04'), '第三词进度包含已重新插入的薄弱词');
+  check((await page.locator('.study-progress-copy strong').innerText()).includes('03 / 03'), '第三词进度不因薄弱词插入而膨胀');
   await page.locator('[data-action="rate-unknown"]').click();
   const unknownText = await page.locator('.answer-stack').innerText();
   check(unknownText.includes('常见搭配') && unknownText.includes('这样记') && unknownText.includes('熟词僻义'), '不认识：显示完整学习层');
