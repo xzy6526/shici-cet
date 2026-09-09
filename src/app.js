@@ -12,25 +12,24 @@ import { advanceStudySession, applyStudyRating } from './study-session.js';
 import { authService } from './services/auth.js';
 import { createSyncService, hasMeaningfulLocalData } from './services/sync.js';
 import { createThemeService } from './services/theme.js';
-import { withReviewedContent } from './reviewed-word-content.js';
-import { withVerifiedPhonetics } from './phonetic-overlay.js';
-import { withVerifiedLexicalContent } from './lexical-overlay.js';
-import { withCETPriorityMeaning } from './cet-priority-overlay.js';
 import { formatExamProvenance, getAnswerContent, getCETTags, getPartOfSpeechLabels, getPrimaryMeaning, getRecommendationReason } from './word-card.js';
 
 const app = document.querySelector('#app');
 const IMPORT_STORAGE_KEY = 'shici-cet-imported-words-v1';
 const MIGRATION_STORAGE_KEY = 'shici-cet-account-migration-v1';
 const appStorage = createStorage();
-const enrichBaseWord = (word) => normalizeWord(withVerifiedPhonetics(withVerifiedLexicalContent(withCETPriorityMeaning(withReviewedContent(word)))));
-const baseWords = words.map(enrichBaseWord);
-const baseWordsById = new Map(baseWords.map((word) => [String(word.id), word]));
-const baseStudyWords = studyWords.map((word) => baseWordsById.get(String(word.id))).filter(Boolean);
+let baseWords = words;
+let baseWordsById = new Map(baseWords.map((word) => [String(word.id), word]));
+let baseStudyWords = studyWords.map((word) => baseWordsById.get(String(word.id))).filter(Boolean);
 let importedWords = loadImportedWords().map(normalizeWord);
 let cachedStudyPool = null;
 let cachedLibraryPool = null;
 let cachedStudyWordsById = null;
 let cachedLibraryWordsById = null;
+let displayWordCache = new Map();
+let vocabularyHydrationPromise = null;
+let vocabularyHydrationTimer = 0;
+let vocabularyHydrated = false;
 function studyPool() {
   if (!cachedStudyPool) {
     cachedStudyPool = [...baseStudyWords, ...importedWords];
@@ -50,6 +49,7 @@ function invalidateWordPoolCaches() {
   cachedLibraryPool = null;
   cachedStudyWordsById = null;
   cachedLibraryWordsById = null;
+  displayWordCache = new Map();
 }
 let state = loadState(studyPool());
 let undoState = null;
@@ -83,6 +83,7 @@ let libraryRenderToken = 0;
 let libraryRenderFrame = 0;
 let libraryRenderIdle = 0;
 let preferenceSaveFrame = 0;
+let renderedScreen = null;
 const syncService = createSyncService(authService.client);
 const themeService = createThemeService();
 
@@ -113,9 +114,75 @@ function saveImportedWords() {
   appStorage.set(IMPORT_STORAGE_KEY, importedWords);
 }
 
+function wordForDisplay(word) {
+  if (!word || vocabularyHydrated) return word;
+  const key = String(word.id ?? word.word);
+  if (!displayWordCache.has(key)) displayWordCache.set(key, normalizeWord(word));
+  return displayWordCache.get(key);
+}
+
+function ensureVocabularyHydrated() {
+  if (vocabularyHydrated) return Promise.resolve();
+  if (vocabularyHydrationPromise) return vocabularyHydrationPromise;
+  vocabularyHydrationPromise = Promise.all([
+    import('./reviewed-word-content.js'),
+    import('./phonetic-overlay.js'),
+    import('./lexical-overlay.js'),
+    import('./cet-priority-overlay.js'),
+  ]).then(async ([reviewedModule, phoneticModule, lexicalModule, cetModule]) => {
+    const enrichBaseWord = (word) => normalizeWord(
+      phoneticModule.withVerifiedPhonetics(
+        lexicalModule.withVerifiedLexicalContent(
+          cetModule.withCETPriorityMeaning(reviewedModule.withReviewedContent(word)),
+        ),
+      ),
+    );
+    const enrichedWords = new Array(words.length);
+    let index = 0;
+    const processChunk = (resolve) => {
+      const deadline = performance.now() + 8;
+      while (index < words.length && performance.now() < deadline) {
+        enrichedWords[index] = enrichBaseWord(words[index]);
+        index += 1;
+      }
+      if (index >= words.length) {
+        resolve(enrichedWords);
+        return;
+      }
+      if (window.requestIdleCallback) window.requestIdleCallback(() => processChunk(resolve), { timeout: 120 });
+      else window.setTimeout(() => processChunk(resolve), 0);
+    };
+    const hydratedWords = await new Promise((resolve) => processChunk(resolve));
+    baseWords = hydratedWords;
+    baseWordsById = new Map(baseWords.map((word) => [String(word.id), word]));
+    baseStudyWords = studyWords.map((word) => baseWordsById.get(String(word.id))).filter(Boolean);
+    vocabularyHydrated = true;
+    invalidateWordPoolCaches();
+  }).catch(() => {
+    // Raw CET data remains usable if optional enhancements cannot load.
+  }).finally(() => {
+    vocabularyHydrationPromise = null;
+  });
+  return vocabularyHydrationPromise;
+}
+
+function scheduleVocabularyHydration() {
+  const hydrate = () => {
+    vocabularyHydrationTimer = 0;
+    ensureVocabularyHydrated().then(() => {
+      if (state.screen === 'study') preloadUpcomingPronunciations();
+      if (state.screen === 'study' || wordDetailId !== null) renderApp();
+    });
+  };
+  vocabularyHydrationTimer = window.setTimeout(() => {
+    if (window.requestIdleCallback) window.requestIdleCallback(hydrate, { timeout: 2500 });
+    else hydrate();
+  }, 1200);
+}
+
 function currentWord() {
   const pool = studyPool();
-  return cachedStudyWordsById.get(String(state.queue[state.queueIndex])) || pool[0];
+  return wordForDisplay(cachedStudyWordsById.get(String(state.queue[state.queueIndex])) || pool[0]);
 }
 
 function daysUntil(date) {
@@ -350,7 +417,7 @@ function restoreWordDetailTrigger(id) {
 
 function detailWord() {
   libraryPool();
-  return cachedLibraryWordsById.get(String(wordDetailId)) || null;
+  return wordForDisplay(cachedLibraryWordsById.get(String(wordDetailId)) || null);
 }
 
 function renderWordTags(word) {
@@ -425,13 +492,21 @@ function applyLibrarySearch() {
   const query = app.querySelector('[data-library-search]')?.value.trim().toLowerCase() || '';
   const list = app.querySelector('[data-library-list]');
   if (!list) return;
+  const count = app.querySelector('[data-library-count]');
+  if (!query) {
+    list.querySelectorAll('[data-library-item][hidden]').forEach((item) => { item.hidden = false; });
+    if (count) {
+      const total = Number(list.dataset.libraryTotal) || list.children.length;
+      count.textContent = list.getAttribute('aria-busy') === 'true' ? `正在加载词库 · 当前显示 ${list.children.length} 个词` : `显示 ${total} 个词`;
+    }
+    return;
+  }
   let visible = 0;
   list.querySelectorAll('[data-library-item]').forEach((item) => {
     const matches = item.dataset.search.includes(query);
     item.hidden = !matches;
     if (matches) visible += 1;
   });
-  const count = app.querySelector('[data-library-count]');
   if (!count) return;
   const total = Number(list.dataset.libraryTotal) || visible;
   if (list.getAttribute('aria-busy') === 'true') count.textContent = query ? `正在加载词库 · 当前匹配 ${visible} 个词` : `显示 ${total} 个词`;
@@ -453,7 +528,8 @@ function scheduleLibraryListRender() {
     libraryRenderFrame = 0;
     libraryRenderIdle = 0;
     if (token !== libraryRenderToken || state.screen !== 'library' || !list.isConnected) return;
-    const end = Math.min(index + 180, wordsForRender.length);
+    const chunkSize = window.matchMedia?.('(max-width: 759px)').matches ? 80 : 180;
+    const end = Math.min(index + chunkSize, wordsForRender.length);
     list.insertAdjacentHTML('beforeend', wordsForRender.slice(index, end).map(renderLibraryItem).join(''));
     index = end;
     applyLibrarySearch();
@@ -473,7 +549,8 @@ function scheduleLibraryListRender() {
 
 function renderLibrary() {
   const libraryWords = libraryWordsForMode();
-  const initialRows = libraryWords.slice(0, 180).map(renderLibraryItem).join('');
+  const initialCount = window.matchMedia?.('(max-width: 759px)').matches ? 60 : 180;
+  const initialRows = libraryWords.slice(0, initialCount).map(renderLibraryItem).join('');
   return `<div class="screen library-screen">
     ${renderTopbar()}
     <main class="library-content${libraryFilterTransition ? ' is-filter-transition' : ''}">
@@ -701,6 +778,8 @@ function syncNavIndicator({ immediate = false } = {}) {
 
 function renderApp() {
   if (!app) return;
+  const screenChanged = renderedScreen !== state.screen;
+  renderedScreen = state.screen;
   if (libraryRenderFrame) cancelAnimationFrame(libraryRenderFrame);
   if (libraryRenderIdle && window.cancelIdleCallback) window.cancelIdleCallback(libraryRenderIdle);
   libraryRenderFrame = 0;
@@ -710,6 +789,7 @@ function renderApp() {
   const currentNav = app.querySelector('.bottom-nav');
   const markup = state.screen === 'home' ? renderHome() : state.screen === 'study' ? renderStudy() : state.screen === 'library' ? renderLibrary() : state.screen === 'profile' ? renderProfile() : renderComplete();
   app.innerHTML = markup;
+  if (screenChanged) app.querySelector('.home-content, .library-content, .profile-content, .study-main, .complete-main')?.classList.add('screen-content-enter');
   const nextNav = app.querySelector('.bottom-nav');
   if (currentNav && nextNav) nextNav.replaceWith(currentNav);
   syncNavIndicator();
@@ -1334,6 +1414,12 @@ function handleAction(event) {
     wordDetailId = target.dataset.wordId;
     renderApp();
     focusWordDetail();
+    void ensureVocabularyHydrated().then(() => {
+      if (wordDetailId !== null) {
+        renderApp();
+        focusWordDetail();
+      }
+    });
   }
   if (action === 'close-word-detail') {
     if (target.classList.contains('icon-button') || (target.matches('.sheet-backdrop') && event.target === target)) {
@@ -1498,6 +1584,7 @@ ensureDailyTask();
 themeService.setPreference(state.settings.themePreference);
 themeService.subscribeSystemTheme();
 renderApp();
+scheduleVocabularyHydration();
 authService.getCurrentUser().then((user) => {
   if (!user) return;
   account = { status: 'authenticated', user };

@@ -3,7 +3,10 @@ const priority = { cet_high: 0, core: 1, secondary: 2, rare: 3 };
 export function getPrimaryMeaning(word = {}) {
   const candidates = [...(word.examMeanings || []), ...(word.meanings || [])];
   if (word.primaryMeaning) candidates.push(word.primaryMeaning);
-  return candidates.sort((left, right) => (priority[left?.priority] ?? 9) - (priority[right?.priority] ?? 9))[0] || null;
+  const primary = candidates.sort((left, right) => (priority[left?.priority] ?? 9) - (priority[right?.priority] ?? 9))[0];
+  if (primary) return primary;
+  const fallback = String(word.meaning || '').trim();
+  return fallback ? { pos: word.pos || '', meaning: fallback, priority: 'core', language: 'zh' } : null;
 }
 
 export function getPartOfSpeechLabels(word = {}) {

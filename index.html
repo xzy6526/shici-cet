@@ -22,7 +22,12 @@
     </script>
   </head>
   <body>
-    <main id="app" aria-live="polite"></main>
+    <main id="app" aria-live="polite">
+      <div class="boot-screen" role="status" aria-label="正在准备词库">
+        <span class="boot-mark" aria-hidden="true">拾</span>
+        <span>正在准备词库…</span>
+      </div>
+    </main>
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>
