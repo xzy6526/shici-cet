@@ -38,6 +38,9 @@ alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
 alter table public.user_word_states enable row level security;
 
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.profiles, public.user_settings, public.user_word_states to authenticated;
+
 create policy "profiles own rows" on public.profiles for all using (id = auth.uid()) with check (id = auth.uid());
 create policy "settings own rows" on public.user_settings for all using (user_id = auth.uid()) with check (user_id = auth.uid());
 create policy "word states own rows" on public.user_word_states for all using (user_id = auth.uid()) with check (user_id = auth.uid());
