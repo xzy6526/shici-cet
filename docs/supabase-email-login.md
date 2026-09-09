@@ -25,8 +25,8 @@
 
 在 **Authentication → URL Configuration** 设置：
 
-- Site URL：`https://xuziyan615.github.io/shici-cet/`
-- Redirect URLs：添加 `https://xuziyan615.github.io/shici-cet/` 和本地开发地址 `http://127.0.0.1:5173/`
+- Site URL：`https://xzy6526.github.io/shici-cet/`
+- Redirect URLs：添加 `https://xzy6526.github.io/shici-cet/` 和本地开发地址 `http://127.0.0.1:5173/`
 
 正式试用建议在 **Authentication → SMTP Settings** 配置自己的 SMTP 服务。Supabase 默认邮件服务存在发送频率与收件限制，不适合多人长期试用。
 
