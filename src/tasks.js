@@ -11,6 +11,11 @@ export function dateKey(value = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function getPendingReviewIds(task) {
+  const completed = new Set(task?.completedReviewIds || []);
+  return (task?.reviewWordIds || []).filter((id) => !completed.has(id));
+}
+
 function dateOnlyUtc(value) {
   const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;

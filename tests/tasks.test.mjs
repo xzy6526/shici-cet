@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateStreak, createDailyTask, dateKey, daysUntilExam } from '../src/tasks.js';
+import { calculateStreak, createDailyTask, dateKey, daysUntilExam, getPendingReviewIds } from '../src/tasks.js';
 
 test('date helpers use local date keys and date-only exam arithmetic', () => {
   assert.equal(dateKey(new Date(2026, 8, 5, 23, 59)), '2026-09-05');
@@ -28,4 +28,9 @@ test('same-day task keeps its original queue across a refresh', () => {
   const resumed = createDailyTask({ words: [], settings: { dailyNew: 1 }, now, previousTask: first });
   assert.deepEqual(resumed.newWordIds, first.newWordIds);
   assert.equal(resumed.completed, false);
+});
+
+test('pending review ids exclude completed review ids', () => {
+  const task = { reviewWordIds: [1, 2, 3], completedReviewIds: [2] };
+  assert.deepEqual(getPendingReviewIds(task), [1, 3]);
 });

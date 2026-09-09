@@ -4,7 +4,7 @@ import { parseCsv, parseJson, parseTextLines } from './importer.js';
 import { createGuestAccount, createLocalMigrationSnapshot, maskEmail } from './account.js';
 import { normalizeWord, stateForWord } from './domain.js';
 import { getFavoriteWords, getHiddenWords, getMistakeWords, filterWords } from './repository.js';
-import { calculateStreak, createDailyTask, dateKey, daysUntilExam as taskDaysUntilExam } from './tasks.js';
+import { calculateStreak, createDailyTask, dateKey, daysUntilExam as taskDaysUntilExam, getPendingReviewIds } from './tasks.js';
 import { scheduleReview } from './scheduler.js';
 import { getPhonetic, pronunciationService } from './pronunciation.js';
 import { createStorage } from './storage.js';
@@ -194,6 +194,11 @@ function taskStageForIndex(index = state.queueIndex) {
   return state.queueStages?.[index] || (index < (state.dueCount || 0) ? 'review' : 'new');
 }
 
+function hasPendingSessionItems() {
+  const completed = new Set(state.completed || []);
+  return state.queue.slice(Math.max(0, state.queueIndex)).some((id) => !completed.has(id));
+}
+
 function pendingTaskQueue(task) {
   const pending = [];
   const stages = [];
@@ -283,7 +288,7 @@ function renderTopbar({ study = false } = {}) {
     const percent = Math.round((Math.min(queueIndex, total) / Math.max(total, 1)) * 100);
     return `<header class="study-topbar">
       ${button(icons.close, 'home', 'icon-button icon-button--quiet', 'aria-label="退出学习"')}
-      <div class="study-progress-copy"><span>今日学习</span><strong>${String(current).padStart(2, '0')} / ${String(total).padStart(2, '0')}</strong></div>
+      <div class="study-progress-copy"><span>${state.sessionMode === 'review' ? '今日复习' : '今日学习'}</span><strong>${String(current).padStart(2, '0')} / ${String(total).padStart(2, '0')}</strong></div>
       ${button(state.favorites.includes(currentWord().id) ? icons.heartFill : icons.heart, 'favorite', `icon-button icon-button--quiet ${state.favorites.includes(currentWord().id) ? 'is-favorite' : ''}`, `aria-label="${state.favorites.includes(currentWord().id) ? '取消收藏' : '收藏'}"`)}
       <div class="study-progress-track" aria-label="学习进度"><span style="--progress:${percent / 100}"></span></div>
     </header>`;
@@ -297,6 +302,14 @@ function renderTopbar({ study = false } = {}) {
 function renderHome() {
   const task = state.dailyTask || ensureDailyTask();
   const remaining = Math.max((task?.newWordIds?.length || 0) - (task?.completedNewIds?.length || 0), 0);
+  const reviewRemaining = getPendingReviewIds(task).length;
+  const dailyInProgress = state.sessionMode === 'daily' && !task?.completed && hasPendingSessionItems();
+  const reviewInProgress = state.sessionMode === 'review' && hasPendingSessionItems();
+  const studyLabel = task?.completed ? '再看一遍' : dailyInProgress ? '继续背词' : '开始背词';
+  const reviewLabel = reviewInProgress ? '继续复习' : reviewRemaining ? '开始复习' : '今日已复习';
+  const reviewButtonLabel = reviewRemaining ? `${reviewLabel} · ${reviewRemaining}` : reviewLabel;
+  const reviewDisabled = !reviewRemaining && !reviewInProgress;
+  const reviewNote = reviewRemaining ? `${reviewRemaining} 个词待复习，可单独完成复习。` : task?.reviewWordIds?.length ? '今日到期复习已完成，可开始新词。' : '今天没有到期复习，直接开始新词。';
   const isDone = Boolean(task?.completed);
   return `<div class="screen home-screen">
     ${renderTopbar()}
@@ -314,8 +327,11 @@ function renderHome() {
       <section class="today-panel">
         <div class="panel-heading"><div><span class="panel-label">今日安排</span><h2>${isDone ? '今天已经完成' : '按自己的节奏来'}</h2></div><span class="panel-meta">${state.settings.dailyNew} 个新词</span></div>
         <div class="study-counts"><div><strong>${state.dueCount}</strong><span>待复习</span></div><div><strong>${remaining}</strong><span>${isDone ? '已完成' : '新单词'}</span></div></div>
-        ${button(`<span>${isDone ? '再看一遍' : '开始背词'}</span>${icons.arrow}`, 'start', 'primary-button', `aria-label="${isDone ? '再看一遍' : '开始背词'}"`)}
-        <p class="panel-note">${state.dueCount ? '先完成到期复习，再开始新词。' : '今天没有到期复习，直接开始新词。'}</p>
+        <div class="today-actions">
+          ${button(`<span>${studyLabel}</span>${icons.arrow}`, 'start', 'primary-button today-action', `aria-label="${studyLabel}"`)}
+          ${button(`<span>${reviewButtonLabel}</span>${reviewDisabled ? icons.check : icons.arrow}`, 'start-review', 'secondary-button today-action', `aria-label="${reviewDisabled ? '今日已完成复习' : reviewButtonLabel}"${reviewDisabled ? ' disabled' : ''}`)}
+        </div>
+        <p class="panel-note">${reviewNote}</p>
       </section>
       <section class="mini-stats" aria-label="学习概览"><div><strong>${state.stats.totalMastered}</strong><span>已掌握</span></div><span class="stat-divider"></span><div><strong>${state.stats.streakDays}</strong><span>连续学习天数</span></div></section>
     </div>
@@ -685,10 +701,13 @@ function renderAnswer(word) {
 function renderComplete() {
   const history = state.history[dateKey()] || {};
   const weakCount = history.weakIds?.length || state.weakToday.length;
+  const reviewMode = state.sessionMode === 'review';
+  const reviewCount = state.dailyTask?.reviewWordIds?.length || state.stats.todayReviewed;
+  const pendingNew = Math.max((state.dailyTask?.newWordIds?.length || 0) - (state.dailyTask?.completedNewIds?.length || 0), 0);
   return `<div class="screen complete-screen">
-    <main class="complete-main"><div class="completion-ring"><span>${icons.check}</span></div><p class="eyebrow">${state.settings.exam} · 今日学习</p><h1>今日完成</h1><p class="complete-copy">每一次积累，都算数。</p>
+    <main class="complete-main"><div class="completion-ring"><span>${icons.check}</span></div><p class="eyebrow">${state.settings.exam} · ${reviewMode ? '今日复习' : '今日学习'}</p><h1>${reviewMode ? '今日复习完成' : '今日完成'}</h1><p class="complete-copy">${reviewMode ? `复习 ${reviewCount} 个词，记忆又稳了一步。` : '每一次积累，都算数。'}</p>
       <div class="complete-stats"><div><strong>${state.stats.todayLearned}</strong><span>今日新学</span></div><span></span><div><strong>${state.stats.todayReviewed}</strong><span>今日复习</span></div><span></span><div><strong>${weakCount}</strong><span>薄弱强化</span></div><span></span><div><strong>${state.stats.streakDays}</strong><span>连续学习</span></div></div>
-      ${button(`<span>返回首页</span>${icons.arrow}`, 'home', 'primary-button complete-button')}
+      <div class="complete-actions">${button(`<span>返回首页</span>${icons.arrow}`, 'home', 'primary-button complete-button')}${reviewMode && pendingNew ? button(`<span>继续背新词</span>${icons.arrow}`, 'start', 'secondary-button complete-button complete-button--secondary') : ''}</div>
     </main><p class="sample-note">词义与频次来自已记录来源；例句、音标和真题出处将在内容审核后补充。</p>
   </div>`;
 }
@@ -993,6 +1012,7 @@ function prepareNextBatch() {
     state.queueStages = pending.stages;
     state.sessionReplay = false;
   }
+  state.sessionMode = 'daily';
   state.queueIndex = 0;
   state.completed = [];
   state.weakToday = [];
@@ -1003,11 +1023,45 @@ function prepareNextBatch() {
 
 function startSession() {
   ensureDailyTask();
-  if (!state.queue.length || state.queueIndex >= state.queue.length || state.dailyTask?.completed) {
+  const canResume = state.sessionMode === 'daily' && state.queue.length && state.queueIndex < state.queue.length && !state.dailyTask?.completed;
+  if (!canResume) {
     prepareNextBatch();
   }
   if (!state.queue.length) {
     showToast('今日暂时没有可学习的词。');
+    return;
+  }
+  state.screen = 'study';
+  state.revealed = false;
+  state.rating = null;
+  state.moreOpen = false;
+  preloadUpcomingPronunciations();
+  persistRender();
+}
+
+function prepareReviewSession() {
+  ensureDailyTask();
+  const task = state.dailyTask;
+  const reviewIds = getPendingReviewIds(task);
+  if (!reviewIds.length) return false;
+  state.queue = reviewIds;
+  state.queueStages = reviewIds.map(() => 'review');
+  state.queueIndex = 0;
+  state.completed = [];
+  state.weakToday = [];
+  state.revealed = false;
+  state.rating = null;
+  state.moreOpen = false;
+  state.sessionReplay = false;
+  state.sessionMode = 'review';
+  return true;
+}
+
+function startReviewSession() {
+  ensureDailyTask();
+  const canResume = state.sessionMode === 'review' && state.queue.length && state.queueIndex < state.queue.length;
+  if (!canResume && !prepareReviewSession()) {
+    showToast('今日已经复习完成。');
     return;
   }
   state.screen = 'study';
@@ -1364,7 +1418,7 @@ function nextWord() {
   pronunciationService.stop();
   const id = currentWord().id;
   const stage = taskStageForIndex();
-  const advance = advanceStudySession(state, { wordId: id, stage });
+  const advance = advanceStudySession(state, { wordId: id, stage, sessionMode: state.sessionMode });
   if (advance.completed) {
     state.screen = 'complete';
   } else {
@@ -1398,6 +1452,7 @@ function handleAction(event) {
   if (target.matches('a[href="#"]')) event.preventDefault();
   const action = target.dataset.action;
   if (action === 'start') startSession();
+  if (action === 'start-review') startReviewSession();
   if (action === 'home') goHome();
   if (action === 'settings') { settingsOpen = true; renderApp(); focusSettingsField(); }
   if (action === 'save-settings') {

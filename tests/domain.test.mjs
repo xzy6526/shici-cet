@@ -62,6 +62,12 @@ test('migrates legacy queue and favorites while keeping valid ids only', () => {
   assert.equal(migrated.settings.targetScore, 600);
 });
 
+test('migrates a persisted review session mode', () => {
+  const words = [{ id: 1, word: 'one' }, { id: 2, word: 'two' }];
+  const migrated = migrateState({ sessionMode: 'review', queue: [1], queueIndex: 0 }, words, 100);
+  assert.equal(migrated.sessionMode, 'review');
+});
+
 test('restores the persisted home, library, study, and completion screens', () => {
   const words = [{ id: 1, word: 'one' }, { id: 2, word: 'two' }];
   for (const screen of ['home', 'library', 'study', 'complete']) {

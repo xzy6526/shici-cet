@@ -301,6 +301,7 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
   const settings = { ...initial.settings, ...(saved.settings || {}) };
   settings.themePreference = ['system', 'light', 'dark'].includes(settings.themePreference) ? settings.themePreference : 'system';
   settings.themeUpdatedAt = Math.max(0, Number(settings.themeUpdatedAt) || 0);
+  const sessionMode = ['daily', 'review'].includes(saved.sessionMode) ? saved.sessionMode : null;
   return {
     ...initial,
     ...saved,
@@ -310,6 +311,7 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
     queueIndex: Math.min(Math.max(Number(saved.queueIndex) || 0, 0), Math.max((queue.length || initial.queue.length) - 1, 0)),
     newCursor: Math.min(Math.max(Number(saved.newCursor) || initial.newCursor, 0), list.length),
     pendingImported,
+    sessionMode,
     completed,
     favorites,
     weakToday,
@@ -332,6 +334,7 @@ export function createInitialState(words, now = DEFAULT_NOW()) {
     queueIndex: 0,
     newCursor: queue.length,
     pendingImported: [],
+    sessionMode: null,
     revealed: false,
     rating: null,
     completed: [],

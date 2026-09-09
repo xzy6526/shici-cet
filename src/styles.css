@@ -64,6 +64,10 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .primary-button svg { width: 18px; }
 .primary-button:hover { background: var(--accent-dark); box-shadow: 0 13px 25px rgba(79, 96, 60, .23); }
 .today-panel .primary-button { width: 100%; }
+.today-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.today-action { width: 100%; min-width: 0; padding: 0 12px; }
+.today-action svg { width: 17px; }
+.today-action:disabled { cursor: default; opacity: .6; }
 .panel-note { margin: 17px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .mini-stats { display: flex; align-items: center; gap: 25px; padding: 30px 7px 0; }
 .mini-stats div { display: grid; gap: 6px; }
@@ -254,6 +258,8 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .complete-stats strong { font-size: 30px; font-weight: 650; letter-spacing: -.06em; }
 .complete-stats > span { width: 1px; height: 28px; background: var(--line); }
 .complete-button { min-width: 150px; }
+.complete-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.complete-button--secondary { border-radius: 17px; }
 .sample-note { position: absolute; right: 20px; bottom: 22px; left: 20px; margin: 0; color: var(--muted); font-size: 11px; }
 
 .sheet-backdrop { position: fixed; z-index: 10; inset: 0; display: flex; align-items: flex-end; background: rgba(34, 40, 32, .16); animation: fade-in .30s ease both; }

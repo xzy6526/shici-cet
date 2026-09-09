@@ -14,6 +14,18 @@ test('study progress ignores weak reinforcements in the daily total', () => {
   assert.deepEqual(getStudyProgress(state), { current: 3, total: 3 });
 });
 
+test('review mode completes its queue without completing the full daily task', () => {
+  const state = {
+    queue: [1], queueStages: ['review'], queueIndex: 0, completed: [],
+    dailyTask: { reviewWordIds: [1], completedReviewIds: [], newWordIds: [2], completedNewIds: [], weakWordIds: [], completedWeakIds: [], completed: false },
+    wordStates: {}, sessionReplay: false,
+  };
+  const result = advanceStudySession(state, { wordId: 1, stage: 'review', sessionMode: 'review' });
+  assert.equal(result.completed, true);
+  assert.deepEqual(state.dailyTask.completedReviewIds, [1]);
+  assert.equal(state.dailyTask.completed, false);
+});
+
 function createSession() {
   const task = createDailyTask({ words, settings: { dailyNew: 50 }, now: 1_000 });
   return {

@@ -35,14 +35,14 @@ export function applyStudyRating(state, { wordId, stage, rating, now = Date.now(
   return { before, after, result };
 }
 
-export function advanceStudySession(state, { wordId, stage } = {}) {
+export function advanceStudySession(state, { wordId, stage, sessionMode = 'daily' } = {}) {
   if (!state.completed.includes(wordId)) state.completed.push(wordId);
   if (!state.sessionReplay && state.dailyTask) {
     state.dailyTask = markTaskItemComplete(state.dailyTask, wordId, stage);
     state.dueCount = Math.max(0, state.dailyTask.reviewWordIds.length - state.dailyTask.completedReviewIds.length);
   }
   if (state.queueIndex >= state.queue.length - 1) {
-    if (!state.sessionReplay && state.dailyTask) state.dailyTask = { ...state.dailyTask, completed: true, currentStage: 'complete' };
+    if (!state.sessionReplay && state.dailyTask && sessionMode !== 'review') state.dailyTask = { ...state.dailyTask, completed: true, currentStage: 'complete' };
     return { completed: true };
   }
   state.queueIndex += 1;
