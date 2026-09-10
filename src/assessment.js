@@ -2,6 +2,10 @@ import { createUserWordState } from './domain.js';
 
 export const ASSESSMENT_VERSION = 1;
 
+export function shouldAutoStartAssessment({ hadLocalData = false, mergedHasLearningData = false, profile = null, assessment = null } = {}) {
+  return !hadLocalData && !mergedHasLearningData && !profile && !assessment?.completed && !assessment?.skipped;
+}
+
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const text = (value) => String(value ?? '').trim();
 const hash = (value) => {

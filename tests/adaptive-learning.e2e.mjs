@@ -86,6 +86,7 @@ try {
   assert.equal(await oldUser.locator('[data-assessment-entry]').count(), 1, 'old users can find the assessment from home');
   await oldUser.locator('[data-assessment-entry]').click();
   assert.equal(await oldUser.locator('.assessment-intro-screen').count(), 1, 'home assessment entry opens the intro');
+  assert.equal(await oldUser.locator('.assessment-home-cta').count(), 0, 'assessment intro replaces the home CTA');
   await oldUser.close();
   console.log(JSON.stringify({ assessmentQuestions: answered, refreshResume: true, themeSwitch: true, widths: [320, 375, 390, 430, 1440], profile: true, personalPlan: true, oldUserBypass: true, errors }));
 } finally {

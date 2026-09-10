@@ -14,7 +14,7 @@ import { createSyncService, hasMeaningfulLocalData } from './services/sync.js';
 import { createThemeService } from './services/theme.js';
 import { renderLoginResend } from './login-ui.js';
 import { formatExamProvenance, getAnswerContent, getCETTags, getPartOfSpeechLabels, getPrimaryMeaning, getRecommendationReason } from './word-card.js';
-import { answerAssessment, applyAssessmentToWordStates, buildAssessmentPool, createAssessmentState, createVocabularyProfile, getAssessmentQuestion, updateVocabularyProfileFromLearning } from './assessment.js';
+import { answerAssessment, applyAssessmentToWordStates, buildAssessmentPool, createAssessmentState, createVocabularyProfile, getAssessmentQuestion, shouldAutoStartAssessment, updateVocabularyProfileFromLearning } from './assessment.js';
 import { recommendDailyQuota } from './personal-plan.js';
 
 const app = document.querySelector('#app');
@@ -547,8 +547,9 @@ function renderHome() {
           ${button(`<span>${reviewButtonLabel}</span>${reviewDisabled ? icons.check : icons.arrow}`, 'start-review', 'secondary-button today-action', `aria-label="${reviewDisabled ? '今日已完成复习' : reviewButtonLabel}"${reviewDisabled ? ' disabled' : ''}`)}
         </div>
         <p class="panel-note">${reviewNote}</p>
-        <div class="adaptive-plan-note"><span>${adaptiveReason()} 今日建议：复习 ${state.adaptivePlan?.recommendedReviews || 0}，新词 ${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew}。</span>${button(state.vocabularyProfile?.source === 'history' ? '完成词汇测试' : '重新测试', 'retest-assessment', 'text-button adaptive-plan-action', 'data-assessment-entry')}</div>
+        <p class="adaptive-plan-note">${adaptiveReason()} 今日建议：复习 ${state.adaptivePlan?.recommendedReviews || 0}，新词 ${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew}。</p>
       </section>
+      <section class="assessment-home-cta"><div><span class="panel-label">词汇水平</span><strong>${state.vocabularyProfile?.source === 'history' ? '完成首次测试' : '让安排更贴合你'}</strong><p>约 3 分钟，测试后会自动调整每日新词与复习节奏。</p></div>${button(state.vocabularyProfile?.source === 'history' ? '开始测试' : '重新测试', 'retest-assessment', 'secondary-button assessment-home-button', 'data-assessment-entry')}</section>
       <section class="mini-stats" aria-label="学习概览"><div><strong>${state.stats.totalMastered}</strong><span>已掌握</span></div><span class="stat-divider"></span><div><strong>${state.stats.streakDays}</strong><span>连续学习天数</span></div></section>
     </div>
     ${renderNav('home')}
@@ -1554,10 +1555,15 @@ function syncAuthenticatedAccount() {
       const merged = await syncService.syncUserState({ userId, localState: state });
       if (account.status !== 'authenticated' || account.user?.id !== userId) return;
       state = merged;
+      const shouldAssess = shouldAutoStartAssessment({ hadLocalData, mergedHasLearningData: hasMeaningfulLocalData(state), profile: state.vocabularyProfile, assessment: state.assessment });
+      if (shouldAssess) {
+        state.screen = 'assessment-intro';
+        assessmentFeedback = null;
+      }
       saveState(state);
       themeService.setPreference(state.settings.themePreference);
       syncStatus = 'synced';
-      if (state.screen === 'profile') renderApp();
+      if (state.screen === 'profile' || shouldAssess) renderApp();
       showToast(hadLocalData ? '学习记录已同步' : '已恢复学习记录');
     } catch {
       if (account.status !== 'authenticated' || account.user?.id !== userId) return;

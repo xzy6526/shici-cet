@@ -72,6 +72,10 @@ svg { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-li
 .adaptive-plan-note { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 9px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.55; }
 .adaptive-plan-note > span { min-width: 0; }
 .adaptive-plan-action { flex: 0 0 auto; min-height: 36px; padding: 6px 0 6px 8px; color: var(--accent-dark); font-weight: 700; white-space: nowrap; }
+.assessment-home-cta { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 14px; padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--surface) 78%, transparent); }
+.assessment-home-cta strong { display: block; margin-top: 5px; font-size: 16px; letter-spacing: -.03em; }
+.assessment-home-cta p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.assessment-home-button { flex: 0 0 auto; min-height: 42px; padding: 0 16px; white-space: nowrap; }
 .mini-stats { display: flex; align-items: center; gap: 25px; padding: 30px 7px 0; }
 .mini-stats div { display: grid; gap: 6px; }
 .mini-stats strong { font-size: 20px; font-weight: 630; letter-spacing: -.04em; }

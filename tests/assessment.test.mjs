@@ -8,6 +8,7 @@ import {
   createVocabularyProfile,
   getAssessmentQuestion,
   isAssessmentQuestionValid,
+  shouldAutoStartAssessment,
   updateVocabularyProfileFromLearning,
 } from '../src/assessment.js';
 
@@ -111,6 +112,14 @@ test('profile uses ranges and assessment evidence never marks a word mastered', 
   assert.equal(Object.values(wordStates).some((entry) => entry.status === 'mastered'), false);
   assert.equal(Object.values(wordStates).some((entry) => entry.assessedWeak), true);
   assert.equal(Object.values(wordStates).some((entry) => entry.assessedKnown), true);
+});
+
+test('new login auto-starts assessment only when local and merged learning data are empty', () => {
+  assert.equal(shouldAutoStartAssessment(), true);
+  assert.equal(shouldAutoStartAssessment({ hadLocalData: true }), false);
+  assert.equal(shouldAutoStartAssessment({ mergedHasLearningData: true }), false);
+  assert.equal(shouldAutoStartAssessment({ profile: { source: 'history' } }), false);
+  assert.equal(shouldAutoStartAssessment({ assessment: { skipped: true } }), false);
 });
 
 test('real repeated learning evidence revises the assessment profile', () => {
