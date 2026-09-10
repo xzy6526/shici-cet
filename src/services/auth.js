@@ -12,6 +12,15 @@ export function validateEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
 }
 
+export function normalizeOtp(value) {
+  const normalized = sanitizeOtpInput(value);
+  return /^\d{6}$/.test(normalized) ? normalized : '';
+}
+
+export function sanitizeOtpInput(value) {
+  return String(value || '').replace(/[０-９]/g, (character) => String.fromCharCode(character.charCodeAt(0) - 0xfee0)).replace(/\D/g, '').slice(0, 6);
+}
+
 function normalizedEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -34,9 +43,13 @@ export function createAuthService(options = {}) {
     configured: Boolean(client),
     async getCurrentUser() {
       if (!client) return null;
-      const { data, error } = await client.auth.getSession();
-      if (error || !data?.session?.user?.email) return null;
-      return { id: data.session.user.id, email: data.session.user.email };
+      try {
+        const { data, error } = await client.auth.getSession();
+        if (error || !data?.session?.user?.email) return null;
+        return { id: data.session.user.id, email: data.session.user.email };
+      } catch {
+        return null;
+      }
     },
     async getSession() {
       if (!client) return null;
@@ -47,22 +60,35 @@ export function createAuthService(options = {}) {
       const email = normalizedEmail(value);
       if (!validateEmail(email)) return { ok: false, error: '请输入正确的邮箱地址。' };
       if (!client) return unavailable();
-      const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-      return error ? { ok: false, error: errorMessage(error) } : { ok: true };
+      try {
+        const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+        return error ? { ok: false, error: errorMessage(error) } : { ok: true };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
     },
     async verifyEmailOtp(value, token) {
       const email = normalizedEmail(value);
       if (!validateEmail(email)) return { ok: false, error: '请输入正确的邮箱地址。' };
-      if (!/^\d{6}$/.test(String(token || '').trim())) return { ok: false, error: '请输入 6 位验证码。' };
+      const normalizedToken = normalizeOtp(token);
+      if (!normalizedToken) return { ok: false, error: '请输入 6 位验证码。' };
       if (!client) return unavailable();
-      const { data, error } = await client.auth.verifyOtp({ email, token: String(token).trim(), type: 'email' });
-      const user = data?.user;
-      return error || !user?.email ? { ok: false, error: errorMessage(error) } : { ok: true, user: { id: user.id, email: user.email } };
+      try {
+        const { data, error } = await client.auth.verifyOtp({ email, token: normalizedToken, type: 'email' });
+        const user = data?.user;
+        return error || !user?.email ? { ok: false, error: errorMessage(error) } : { ok: true, user: { id: user.id, email: user.email } };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
     },
     async signOut() {
       if (!client) return { ok: true };
-      const { error } = await client.auth.signOut();
-      return error ? { ok: false, error: errorMessage(error) } : { ok: true };
+      try {
+        const { error } = await client.auth.signOut();
+        return error ? { ok: false, error: errorMessage(error) } : { ok: true };
+      } catch (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
     },
     onAuthStateChange(callback) {
       if (!client) { callback?.(createGuestAccount()); return () => {}; }

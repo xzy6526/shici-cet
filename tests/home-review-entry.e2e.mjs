@@ -19,6 +19,11 @@ try {
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: 'networkidle' });
     if (await page.locator('[data-assessment-skip]').count()) await page.locator('[data-assessment-skip]').click();
+    await page.locator('[data-action="profile"]').click();
+    await page.locator('[data-action="open-login"]').click();
+    assert.equal(await page.locator('[data-login-email-form]').count(), 1, 'email login sheet opens without a runtime error');
+    await page.locator('.login-sheet button[data-action="close-login"]').click();
+    await page.locator('.nav-item[data-action="home"]').click();
     const review = () => page.locator('[data-action="start-review"]');
     const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('shici-cet-state-v3')));
     assert.equal(await review().isEnabled(), true);
@@ -76,7 +81,7 @@ try {
     assert.equal(await page.locator('.nav-indicator').count(), 1);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     assert.deepEqual(errors, []);
-    console.log(JSON.stringify({ width, newWords: 20, reviewed: width === 390 ? 1 : 0, initialClickable: true, emptyFeedback: true, completionAfterBatch: true, errors }));
+    console.log(JSON.stringify({ width, newWords: 20, reviewed: width === 390 ? 1 : 0, emailLoginSheet: true, initialClickable: true, emptyFeedback: true, completionAfterBatch: true, errors }));
     await page.close();
   }
 } finally {

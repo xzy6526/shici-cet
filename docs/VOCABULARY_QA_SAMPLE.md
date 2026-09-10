@@ -1,6 +1,6 @@
 # CET Vocabulary QA Sample
 
-生成时间：2026-09-10T14:11:21.602Z
+生成时间：2026-09-10T14:29:14.561Z
 
 范围：Full Vocabulary = 4025；Study Pool = 3861。抽样为 Study Pool 中按来源顺序的高频 50 条，加上固定种子生成的确定性抽样 50 条，共 100 条。
 

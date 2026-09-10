@@ -1,6 +1,6 @@
 # CET Vocabulary Coverage Report
 
-生成时间：2026-09-10T14:11:21.185Z
+生成时间：2026-09-10T14:29:14.131Z
 
 - **Full Vocabulary**：4025
 - **Study Pool**：3861
