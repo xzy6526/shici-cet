@@ -547,7 +547,7 @@ function renderHome() {
           ${button(`<span>${reviewButtonLabel}</span>${reviewDisabled ? icons.check : icons.arrow}`, 'start-review', 'secondary-button today-action', `aria-label="${reviewDisabled ? '今日已完成复习' : reviewButtonLabel}"${reviewDisabled ? ' disabled' : ''}`)}
         </div>
         <p class="panel-note">${reviewNote}</p>
-        <p class="adaptive-plan-note">${adaptiveReason()} 今日建议：复习 ${state.adaptivePlan?.recommendedReviews || 0}，新词 ${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew}。</p>
+        <div class="adaptive-plan-note"><span>${adaptiveReason()} 今日建议：复习 ${state.adaptivePlan?.recommendedReviews || 0}，新词 ${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew}。</span>${button(state.vocabularyProfile?.source === 'history' ? '完成词汇测试' : '重新测试', 'retest-assessment', 'text-button adaptive-plan-action', 'data-assessment-entry')}</div>
       </section>
       <section class="mini-stats" aria-label="学习概览"><div><strong>${state.stats.totalMastered}</strong><span>已掌握</span></div><span class="stat-divider"></span><div><strong>${state.stats.streakDays}</strong><span>连续学习天数</span></div></section>
     </div>

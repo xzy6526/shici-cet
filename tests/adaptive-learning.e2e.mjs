@@ -83,6 +83,9 @@ try {
   await oldUser.goto(process.env.BASE_URL || 'http://127.0.0.1:5173/', { waitUntil: 'networkidle' });
   assert.equal(await oldUser.locator('.home-screen').count(), 1, 'old users are not blocked by assessment');
   assert.equal(await oldUser.locator('[data-assessment-start]').count(), 0);
+  assert.equal(await oldUser.locator('[data-assessment-entry]').count(), 1, 'old users can find the assessment from home');
+  await oldUser.locator('[data-assessment-entry]').click();
+  assert.equal(await oldUser.locator('.assessment-intro-screen').count(), 1, 'home assessment entry opens the intro');
   await oldUser.close();
   console.log(JSON.stringify({ assessmentQuestions: answered, refreshResume: true, themeSwitch: true, widths: [320, 375, 390, 430, 1440], profile: true, personalPlan: true, oldUserBypass: true, errors }));
 } finally {
