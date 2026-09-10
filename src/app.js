@@ -14,6 +14,8 @@ import { createSyncService, hasMeaningfulLocalData } from './services/sync.js';
 import { createThemeService } from './services/theme.js';
 import { renderLoginResend } from './login-ui.js';
 import { formatExamProvenance, getAnswerContent, getCETTags, getPartOfSpeechLabels, getPrimaryMeaning, getRecommendationReason } from './word-card.js';
+import { answerAssessment, applyAssessmentToWordStates, buildAssessmentPool, createAssessmentState, createVocabularyProfile, getAssessmentQuestion, updateVocabularyProfileFromLearning } from './assessment.js';
+import { recommendDailyQuota } from './personal-plan.js';
 
 const app = document.querySelector('#app');
 const IMPORT_STORAGE_KEY = 'shici-cet-imported-words-v1';
@@ -51,6 +53,7 @@ function invalidateWordPoolCaches() {
   cachedStudyWordsById = null;
   cachedLibraryWordsById = null;
   displayWordCache = new Map();
+  assessmentPoolCache = null;
 }
 let state = loadState(studyPool());
 let undoState = null;
@@ -86,6 +89,9 @@ let libraryRenderFrame = 0;
 let libraryRenderIdle = 0;
 let preferenceSaveFrame = 0;
 let renderedScreen = null;
+let assessmentPoolCache = null;
+let assessmentFeedback = null;
+let assessmentPreparing = false;
 const syncService = createSyncService(authService.client);
 const themeService = createThemeService();
 
@@ -246,10 +252,69 @@ function pendingTaskQueue(task) {
   return { pending, stages };
 }
 
+function needsInitialAssessment() {
+  return !state.vocabularyProfile && !state.assessment?.skipped && !state.assessment?.completed;
+}
+
+function defaultVocabularyProfile(now = Date.now()) {
+  const target = Number(state.settings.targetScore) || 550;
+  const center = target >= 600 ? 0.64 : target >= 550 ? 0.52 : target >= 500 ? 0.44 : 0.36;
+  return {
+    assessmentVersion: null,
+    completedAt: null,
+    estimatedCoverage: { min: center - 0.18, max: center + 0.18 },
+    estimatedLevel: Math.max(1, Math.min(5, Math.round(1 + center * 4))),
+    confidence: 0.25,
+    bandScores: { core: center + 0.08, highFrequency: center, advanced: Math.max(0.1, center - 0.12), rareMeaning: Math.max(0.05, center - 0.2) },
+    testedWords: [],
+    weakCategories: [],
+    source: 'default',
+    lastUpdatedAt: now,
+  };
+}
+
+function recentPerformance() {
+  return Object.entries(state.history || {}).sort(([left], [right]) => left.localeCompare(right)).slice(-7).map(([, day]) => {
+    const results = Object.values(day?.results || {});
+    const planned = Number(day?.plannedBatchSize) || Number(state.stats.plannedBatchSize) || Number(state.settings.dailyNew) || 20;
+    return {
+      correct: results.filter((result) => result === 'good').length,
+      fuzzy: results.filter((result) => result === 'hard').length,
+      unknown: results.filter((result) => result === 'again').length,
+      completionRate: Math.min(1, (day?.learnedIds?.length || 0) / Math.max(1, planned)),
+    };
+  });
+}
+
+function ensureAdaptivePlan(now = Date.now()) {
+  const today = dateKey(now);
+  if (state.adaptivePlan?.date === today) return state.adaptivePlan;
+  const dueReviews = Object.values(state.wordStates || {}).filter((entry) => entry.status !== 'hidden' && entry.nextReviewAt != null && Number(entry.nextReviewAt) <= now).length;
+  const remainingWords = studyPool().filter((word) => (state.wordStates?.[String(word.id)]?.status || 'unseen') === 'unseen').length;
+  const recommendation = recommendDailyQuota({
+    previousNewWords: state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew || 20,
+    dueReviews,
+    remainingWords,
+    recentDays: recentPerformance(),
+    intensity: state.settings.learningIntensity || 'standard',
+  });
+  state.adaptivePlan = {
+    date: today,
+    recommendedNewWords: recommendation.newWords,
+    recommendedReviews: recommendation.reviews,
+    learningIntensity: recommendation.learningIntensity,
+    reasonCodes: recommendation.reasonCodes,
+    generatedAt: now,
+  };
+  state.settings.dailyNew = recommendation.newWords;
+  return state.adaptivePlan;
+}
+
 function ensureDailyTask() {
   const now = Date.now();
   const today = dateKey(now);
   if (state.dailyTask?.date !== today) {
+    ensureAdaptivePlan(now);
     const wasStudying = state.screen === 'study' && state.queue.length > 0 && state.queueIndex < state.queue.length;
     const previousQueue = wasStudying ? [...state.queue] : [];
     const previousIndex = wasStudying ? state.queueIndex : 0;
@@ -258,7 +323,7 @@ function ensureDailyTask() {
       ? [...state.queueStages]
       : previousQueue.map((_, index) => index < (state.dueCount || 0) ? 'review' : 'new');
     const previousHistory = state.history || {};
-    state.dailyTask = createDailyTask({ words: studyPool(), wordStates: state.wordStates, settings: state.settings, now, previousTask: null });
+    state.dailyTask = createDailyTask({ words: studyPool(), wordStates: state.wordStates, settings: state.settings, profile: state.vocabularyProfile, seed: `${state.localUserId}:${today}`, now, previousTask: null });
     state.stats.todayLearned = 0;
     state.stats.todayReviewed = 0;
     state.stats.uniqueNewWordsToday = 0;
@@ -291,7 +356,7 @@ function ensureDailyTask() {
 
 function todayHistory() {
   const key = dateKey();
-  if (!state.history[key]) state.history[key] = { studied: false, learnedIds: [], reviewedIds: [], weakIds: [], results: {} };
+  if (!state.history[key]) state.history[key] = { studied: false, learnedIds: [], reviewedIds: [], weakIds: [], results: {}, plannedBatchSize: state.dailyTask?.batchSize || state.settings.dailyNew };
   return state.history[key];
 }
 
@@ -326,6 +391,8 @@ function recordResult(wordId, result, stage, previousState, nextState) {
   state.stats.extraNewWordsToday = Math.max(0, state.stats.uniqueNewWordsToday - state.stats.plannedBatchSize);
   state.stats.weakWords = Object.values(state.wordStates || {}).filter((item) => item.status !== 'hidden' && (Number(item.mistakeCount) > 0 || Number(item.wrongCount) > 0 || item.familiarity === 'vague')).length;
   if (previousState.status !== 'mastered' && nextState.status === 'mastered') state.stats.totalMastered += 1;
+  const learnedWord = cachedStudyWordsById?.get(String(wordId));
+  if (learnedWord && state.vocabularyProfile) state.vocabularyProfile = updateVocabularyProfileFromLearning(state.vocabularyProfile, learnedWord, nextState);
   state.stats.lastStudyDate = dateKey();
   state.stats.streakDays = calculateStreak(state.history, dateKey());
 }
@@ -357,6 +424,89 @@ function renderTopbar({ study = false } = {}) {
     <a class="brand" href="#" data-action="home" aria-label="拾词首页"><span class="brand-mark">拾</span><span>拾词</span></a>
     ${button(icons.settings, 'settings', 'icon-button', 'aria-label="设置"')}
   </header>`;
+}
+
+function adaptiveReason(plan = state.adaptivePlan) {
+  const code = plan?.reasonCodes?.[0];
+  return ({
+    HIGH_REVIEW_LOAD: '最近复习任务较多，今天减少了新词。',
+    ELEVATED_REVIEW_LOAD: '今天先兼顾复习，再安排适量新词。',
+    LOW_RECENT_ACCURACY: '近期模糊词较多，今天放慢一点。',
+    HIGH_RECENT_ACCURACY: '近期完成得很稳，今天增加了少量新词。',
+    STEADY_PACE: '根据你的学习情况自动安排。',
+  })[code] || '根据你的学习情况自动安排。';
+}
+
+function renderAssessmentIntro() {
+  return `<div class="screen assessment-intro-screen">
+    ${renderTopbar()}
+    <main class="assessment-shell assessment-intro-content">
+      <p class="eyebrow">个性化学习 · 首次设置</p>
+      <h1>先了解一下你的当前词汇水平</h1>
+      <p class="assessment-lead">约 3 分钟。这不是考试，只用于帮你安排更合适的学习内容。</p>
+      <form class="assessment-setup" data-assessment-setup>
+        <div class="assessment-exam-choice"><span>目标考试</span><div><button type="button" class="is-active" aria-pressed="true">CET-4</button><button type="button" disabled title="CET-6 词库尚未接入">CET-6 · 后续</button></div></div>
+        <label><span>目标分数</span><input name="targetScore" type="number" min="425" max="710" inputmode="numeric" value="${state.settings.targetScore}" /></label>
+        <label><span>考试日期</span><input name="examDate" type="date" value="${escapeHtml(state.settings.examDate)}" /></label>
+      </form>
+      <div class="assessment-intro-actions">
+        ${button(assessmentPreparing ? '正在准备题目…' : `开始词汇测试${icons.arrow}`, 'start-assessment', 'primary-button', `data-assessment-start${assessmentPreparing ? ' disabled' : ''}`)}
+        ${button('稍后测试', 'skip-assessment', 'text-button', 'data-assessment-skip')}
+      </div>
+    </main>
+    <div class="toast" role="status" aria-live="polite"></div>
+  </div>`;
+}
+
+function renderAssessment() {
+  const question = assessmentFeedback?.question || getAssessmentQuestion(state.assessment, assessmentPoolCache || []);
+  if (!question) return renderAssessmentIntro();
+  const feedback = assessmentFeedback;
+  const progress = Math.min((state.assessment?.answers?.length || 0) + (feedback ? 0 : 1), state.assessment?.targetCount || 26);
+  const labels = ['A', 'B', 'C', 'D', ''];
+  const choices = question.options.map((option, index) => {
+    const isCorrect = Boolean(feedback && index === question.correctIndex);
+    const isSelectedWrong = Boolean(feedback && index === feedback.selectedIndex && !feedback.correct);
+    const className = `assessment-choice${isCorrect ? ' is-correct' : ''}${isSelectedWrong ? ' is-incorrect' : ''}`;
+    return `<button type="button" class="${className}" data-action="assessment-choice" data-assessment-choice data-choice-index="${index}" ${feedback || assessmentPreparing ? 'disabled' : ''}><span>${labels[index]}</span><strong>${escapeHtml(option.text)}</strong>${isCorrect ? icons.check : ''}</button>`;
+  }).join('');
+  const feedbackCopy = feedback ? `<div class="assessment-feedback ${feedback.correct ? 'is-correct' : ''}" role="status"><strong>${feedback.correct ? '判断正确' : '记住这个核心义'}</strong><span>${escapeHtml(question.meaning)}</span></div>` : '';
+  return `<div class="screen assessment-screen">
+    <header class="assessment-topbar"><button class="icon-button icon-button--quiet" type="button" data-action="assessment-exit" aria-label="退出测试">${icons.close}</button><div><span>词汇水平测试</span><strong>${progress} / 约 ${state.assessment?.targetCount || 26}</strong></div><span></span></header>
+    <main class="assessment-shell assessment-question-content">
+      <p class="eyebrow">${question.type === 'rareMeaning' ? '熟词僻义' : '选择最接近的意思'}</p>
+      <h1>${escapeHtml(question.word)}</h1>
+      <p class="assessment-phonetic">${escapeHtml(question.phonetic || '音标待补充')}</p>
+      <div class="assessment-choices">${choices}</div>
+      ${feedbackCopy}
+      ${feedback ? button(state.assessment.completed ? `查看结果${icons.arrow}` : `下一题${icons.arrow}`, 'assessment-next', 'primary-button assessment-next', 'data-assessment-next') : ''}
+    </main>
+  </div>`;
+}
+
+function profileLevelLabel(level) {
+  return Number(level) >= 4 ? '较高' : Number(level) >= 3 ? '中等' : '正在打基础';
+}
+
+function bandState(score) {
+  return Number(score) >= 0.7 ? '稳定' : Number(score) >= 0.5 ? '一般' : '需要加强';
+}
+
+function renderAssessmentResult() {
+  const profile = state.vocabularyProfile || defaultVocabularyProfile();
+  const min = Math.round(profile.estimatedCoverage.min * 100);
+  const max = Math.round(profile.estimatedCoverage.max * 100);
+  return `<div class="screen assessment-result-screen">
+    <main class="assessment-shell assessment-result-content">
+      <div class="completion-ring"><span>${icons.check}</span></div>
+      <p class="eyebrow">个性化学习起点已建立</p>
+      <h1>当前水平：${profileLevelLabel(profile.estimatedLevel)}</h1>
+      <p class="assessment-range">CET-4 词库掌握度约 <strong>${min}%～${max}%</strong></p>
+      <div class="assessment-band-results"><div><span>基础核心词</span><strong>${bandState(profile.bandScores.core)}</strong></div><div><span>高频提分词</span><strong>${bandState(profile.bandScores.highFrequency)}</strong></div><div><span>熟词僻义</span><strong>${bandState(profile.bandScores.rareMeaning)}</strong></div></div>
+      <section class="assessment-plan-preview"><span>系统建议</span><p>系统会结合考试日期、目标分数和后续真实学习表现，每天调整新词与复习安排。</p></section>
+      ${button(`开始学习${icons.arrow}`, 'assessment-finish', 'primary-button assessment-finish', 'data-assessment-finish')}
+    </main>
+  </div>`;
 }
 
 function renderHome() {
@@ -397,6 +547,7 @@ function renderHome() {
           ${button(`<span>${reviewButtonLabel}</span>${reviewDisabled ? icons.check : icons.arrow}`, 'start-review', 'secondary-button today-action', `aria-label="${reviewDisabled ? '今日已完成复习' : reviewButtonLabel}"${reviewDisabled ? ' disabled' : ''}`)}
         </div>
         <p class="panel-note">${reviewNote}</p>
+        <p class="adaptive-plan-note">${adaptiveReason()} 今日建议：复习 ${state.adaptivePlan?.recommendedReviews || 0}，新词 ${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew}。</p>
       </section>
       <section class="mini-stats" aria-label="学习概览"><div><strong>${state.stats.totalMastered}</strong><span>已掌握</span></div><span class="stat-divider"></span><div><strong>${state.stats.streakDays}</strong><span>连续学习天数</span></div></section>
     </div>
@@ -418,6 +569,7 @@ function renderNav(active) {
 function renderProfileLinks() {
   const links = [
     ['学习设置', 'settings'],
+    ['测试词汇水平', 'retest-assessment'],
     ['我的收藏', 'profile-favorites'],
     ['自定义词表', 'profile-custom'],
     ['已隐藏词汇', 'profile-hidden'],
@@ -709,8 +861,8 @@ function renderSettings() {
   const theme = state.settings.themePreference || 'system';
   return `<div class="sheet-backdrop" data-action="close-settings"><section class="bottom-sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" data-sheet-content>
     <div class="sheet-handle" data-sheet-drag-handle></div><div class="sheet-heading"><h2 id="settings-title">学习设置</h2>${button(icons.close, 'close-settings', 'icon-button icon-button--quiet', 'aria-label="关闭设置"')}</div>
-    <form data-settings-form><div class="setting-list"><div><span>考试类型</span><strong>${state.settings.exam}</strong></div><label><span>目标分数</span><input type="number" min="1" max="710" step="1" inputmode="numeric" value="${state.settings.targetScore}" name="targetScore" aria-label="目标分数" /></label><label><span>每日新词</span><div class="setting-number"><input type="number" min="1" max="100" step="1" inputmode="numeric" value="${state.settings.dailyNew}" name="dailyNew" aria-label="每日新词" /><strong>个</strong></div></label><div class="setting-pronunciation"><span>默认发音</span><div class="segmented-control" data-selected="${state.settings.pronunciationPreference}" role="radiogroup" aria-label="默认发音"><span class="segmented-indicator" aria-hidden="true"></span><button type="button" data-action="pronunciation" data-accent="uk" aria-pressed="${state.settings.pronunciationPreference === 'uk'}" class="${state.settings.pronunciationPreference === 'uk' ? 'is-active' : ''}">英式 UK</button><button type="button" data-action="pronunciation" data-accent="us" aria-pressed="${state.settings.pronunciationPreference === 'us'}" class="${state.settings.pronunciationPreference === 'us' ? 'is-active' : ''}">美式 US</button></div></div><div class="setting-pronunciation setting-theme"><span>外观</span><div class="segmented-control segmented-control--three" data-selected="${theme}" role="radiogroup" aria-label="主题"><span class="segmented-indicator" aria-hidden="true"></span><button type="button" data-action="theme-preference" data-theme-preference="system" aria-pressed="${theme === 'system'}" class="${theme === 'system' ? 'is-active' : ''}">自动</button><button type="button" data-action="theme-preference" data-theme-preference="light" aria-pressed="${theme === 'light'}" class="${theme === 'light' ? 'is-active' : ''}">浅色</button><button type="button" data-action="theme-preference" data-theme-preference="dark" aria-pressed="${theme === 'dark'}" class="${theme === 'dark' ? 'is-active' : ''}">深色</button></div></div></div>
-    ${button('保存设置', 'save-settings', 'primary-button settings-save-button', 'type="button"')}<p class="sheet-note">保存后同步首页。学习已经开始时，新词数量会从下一批生效。</p></form>
+    <form data-settings-form><div class="setting-list"><div><span>考试类型</span><strong>${state.settings.exam}</strong></div><label><span>目标分数</span><input type="number" min="1" max="710" step="1" inputmode="numeric" value="${state.settings.targetScore}" name="targetScore" aria-label="目标分数" /></label><label><span>考试日期</span><input type="date" value="${escapeHtml(state.settings.examDate)}" name="examDate" aria-label="考试日期" /></label><div><span>今日建议新词</span><strong>${state.adaptivePlan?.recommendedNewWords || state.settings.dailyNew} 个</strong></div><label><span>学习强度</span><select name="learningIntensity" aria-label="学习强度"><option value="relaxed" ${state.settings.learningIntensity === 'relaxed' ? 'selected' : ''}>轻松</option><option value="standard" ${state.settings.learningIntensity === 'standard' ? 'selected' : ''}>标准</option><option value="intensive" ${state.settings.learningIntensity === 'intensive' ? 'selected' : ''}>加强</option></select></label><div class="setting-pronunciation"><span>默认发音</span><div class="segmented-control" data-selected="${state.settings.pronunciationPreference}" role="radiogroup" aria-label="默认发音"><span class="segmented-indicator" aria-hidden="true"></span><button type="button" data-action="pronunciation" data-accent="uk" aria-pressed="${state.settings.pronunciationPreference === 'uk'}" class="${state.settings.pronunciationPreference === 'uk' ? 'is-active' : ''}">英式 UK</button><button type="button" data-action="pronunciation" data-accent="us" aria-pressed="${state.settings.pronunciationPreference === 'us'}" class="${state.settings.pronunciationPreference === 'us' ? 'is-active' : ''}">美式 US</button></div></div><div class="setting-pronunciation setting-theme"><span>外观</span><div class="segmented-control segmented-control--three" data-selected="${theme}" role="radiogroup" aria-label="主题"><span class="segmented-indicator" aria-hidden="true"></span><button type="button" data-action="theme-preference" data-theme-preference="system" aria-pressed="${theme === 'system'}" class="${theme === 'system' ? 'is-active' : ''}">自动</button><button type="button" data-action="theme-preference" data-theme-preference="light" aria-pressed="${theme === 'light'}" class="${theme === 'light' ? 'is-active' : ''}">浅色</button><button type="button" data-action="theme-preference" data-theme-preference="dark" aria-pressed="${theme === 'dark'}" class="${theme === 'dark' ? 'is-active' : ''}">深色</button></div></div></div>
+    ${button('保存设置', 'save-settings', 'primary-button settings-save-button', 'type="button"')}<p class="sheet-note">系统每天推荐第一组数量；完成后仍可继续下一组。</p></form>
   </section></div>`;
 }
 
@@ -898,9 +1050,16 @@ function renderApp() {
   libraryRenderToken += 1;
   const focusedNavAction = document.activeElement?.closest?.('.nav-item')?.dataset.action;
   const currentNav = app.querySelector('.bottom-nav');
-  const markup = state.screen === 'home' ? renderHome() : state.screen === 'study' ? renderStudy() : state.screen === 'library' ? renderLibrary() : state.screen === 'profile' ? renderProfile() : renderComplete();
+  const markup = state.screen === 'assessment-intro' ? renderAssessmentIntro()
+    : state.screen === 'assessment' ? renderAssessment()
+      : state.screen === 'assessment-result' ? renderAssessmentResult()
+        : state.screen === 'home' ? renderHome()
+          : state.screen === 'study' ? renderStudy()
+            : state.screen === 'library' ? renderLibrary()
+              : state.screen === 'profile' ? renderProfile()
+                : renderComplete();
   app.innerHTML = markup;
-  if (screenChanged) app.querySelector('.home-content, .library-content, .profile-content, .study-main, .complete-main')?.classList.add('screen-content-enter');
+  if (screenChanged) app.querySelector('.home-content, .library-content, .profile-content, .study-main, .complete-main, .assessment-shell')?.classList.add('screen-content-enter');
   const nextNav = app.querySelector('.bottom-nav');
   if (currentNav && nextNav) nextNav.replaceWith(currentNav);
   syncNavIndicator();
@@ -1118,6 +1277,8 @@ function startNewBatch() {
     words: studyPool(),
     wordStates: state.wordStates,
     settings: state.settings,
+    profile: state.vocabularyProfile,
+    seed: `${state.localUserId}:${dateKey()}:${state.dailyTask?.batches?.length || 1}`,
     now: Date.now(),
   });
   if (!task) {
@@ -1435,6 +1596,85 @@ async function completeLogin(form) {
   persistRender();
 }
 
+async function startAssessment(form = app.querySelector('[data-assessment-setup]')) {
+  if (assessmentPreparing) return;
+  const values = form ? Object.fromEntries(new FormData(form)) : {};
+  state = updateSettings(state, { ...values, dailyNew: state.settings.dailyNew }, studyPool());
+  assessmentPreparing = true;
+  renderApp();
+  await ensureVocabularyHydrated();
+  assessmentPoolCache = buildAssessmentPool(studyPool());
+  assessmentPreparing = false;
+  if (assessmentPoolCache.length < 100) {
+    renderApp();
+    showToast('可用测试题不足，请稍后重试。');
+    return;
+  }
+  if (!state.assessment || state.assessment.completed || state.assessment.skipped) {
+    state.assessment = createAssessmentState({ seed: `${state.localUserId}:${Date.now()}`, targetCount: 26, maxQuestions: 30 });
+  }
+  getAssessmentQuestion(state.assessment, assessmentPoolCache);
+  assessmentFeedback = null;
+  state.screen = 'assessment';
+  window.scrollTo(0, 0);
+  persistRender();
+}
+
+function answerAssessmentChoice(target) {
+  if (assessmentFeedback || !state.assessment) return;
+  const question = getAssessmentQuestion(state.assessment, assessmentPoolCache || []);
+  if (!question) return;
+  const selectedIndex = Number(target.dataset.choiceIndex);
+  const next = answerAssessment(state.assessment, selectedIndex, assessmentPoolCache || [], Date.now());
+  assessmentFeedback = { question, selectedIndex, correct: selectedIndex === question.correctIndex };
+  state.assessment = next;
+  if (next.completed) {
+    state.vocabularyProfile = createVocabularyProfile(next, Date.now());
+    state.wordStates = applyAssessmentToWordStates(state.wordStates, next, Date.now());
+    state.adaptivePlan = null;
+    state.dailyTask = null;
+    state.queue = [];
+    state.queueIndex = 0;
+  }
+  persistRender();
+}
+
+function continueAssessment() {
+  assessmentFeedback = null;
+  if (state.assessment?.completed) {
+    state.screen = 'assessment-result';
+    window.scrollTo(0, 0);
+  }
+  persistRender();
+}
+
+function skipAssessment() {
+  state.assessment = { skipped: true, skippedAt: Date.now() };
+  if (!state.vocabularyProfile) state.vocabularyProfile = defaultVocabularyProfile();
+  state.adaptivePlan = null;
+  state.dailyTask = null;
+  state.screen = 'home';
+  ensureDailyTask();
+  persistRender();
+}
+
+function finishAssessment() {
+  state.adaptivePlan = null;
+  state.dailyTask = null;
+  state.screen = 'home';
+  ensureDailyTask();
+  persistRender();
+}
+
+function restartAssessment() {
+  assessmentFeedback = null;
+  state.assessment = null;
+  state.screen = 'assessment-intro';
+  window.scrollTo(0, 0);
+  settingsOpen = false;
+  persistRender();
+}
+
 function goHome() {
   pronunciationService.stop();
   settingsOpen = false;
@@ -1450,6 +1690,8 @@ function goHome() {
 function saveSettings(form) {
   if (!form) return;
   state = updateSettings(state, Object.fromEntries(new FormData(form)), studyPool());
+  state.adaptivePlan = null;
+  ensureAdaptivePlan();
   settingsOpen = false;
   persistRender();
   showToast('学习设置已保存');
@@ -1640,6 +1882,13 @@ function handleAction(event) {
   if (!target) return;
   if (target.matches('a[href="#"]')) event.preventDefault();
   const action = target.dataset.action;
+  if (action === 'start-assessment') { void startAssessment(); return; }
+  if (action === 'skip-assessment') { skipAssessment(); return; }
+  if (action === 'assessment-choice') { answerAssessmentChoice(target); return; }
+  if (action === 'assessment-next') { continueAssessment(); return; }
+  if (action === 'assessment-finish') { finishAssessment(); return; }
+  if (action === 'assessment-exit') { assessmentFeedback = null; state.screen = 'assessment-intro'; persistRender(); return; }
+  if (action === 'retest-assessment') { restartAssessment(); return; }
   const guardedActions = new Set(['rate-unknown', 'rate-fuzzy', 'rate-known', 'next', 'undo']);
   const point = Number.isFinite(event.clientX) && Number.isFinite(event.clientY) ? { x: event.clientX, y: event.clientY } : null;
   if (point && lastActionGesture && Date.now() - lastActionGesture.time < 80 && guardedActions.has(action)) {
@@ -1859,10 +2108,22 @@ app?.addEventListener('submit', (event) => {
 app?.addEventListener('input', (event) => {
   if (event.target.matches('[data-library-search]')) applyLibrarySearch();
 });
-ensureDailyTask();
+if (needsInitialAssessment() && !['assessment-intro', 'assessment'].includes(state.screen)) {
+  state.screen = state.assessment?.answers?.length ? 'assessment' : 'assessment-intro';
+}
+if (state.assessment?.completed && state.screen === 'assessment') state.screen = 'assessment-result';
+if (!['assessment-intro', 'assessment', 'assessment-result'].includes(state.screen)) ensureDailyTask();
 themeService.setPreference(state.settings.themePreference);
 themeService.subscribeSystemTheme();
 renderApp();
+if (state.screen === 'assessment') {
+  assessmentPreparing = true;
+  ensureVocabularyHydrated().then(() => {
+    assessmentPoolCache = buildAssessmentPool(studyPool());
+    assessmentPreparing = false;
+    renderApp();
+  });
+}
 scheduleVocabularyHydration();
 authService.getCurrentUser().then((user) => {
   if (!user) return;

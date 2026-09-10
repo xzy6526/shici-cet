@@ -18,6 +18,15 @@ test('new candidates exclude hidden and rank by priority', () => {
   assert.deepEqual(getNewWordCandidates(words, states, { targetScore: 550 }).map((word) => word.id), [3]);
 });
 
+test('new candidates use stable personal priority context', () => {
+  const states = { 2: { status: 'unseen', assessedWeak: true } };
+  const context = { seed: 'local-1:2026-09-10', profile: { bandScores: { core: 0.8, highFrequency: 0.5, advanced: 0.2, rareMeaning: 0.2 } } };
+  const first = getNewWordCandidates(words, states, { targetScore: 550 }, context).map((word) => word.id);
+  const second = getNewWordCandidates(words, states, { targetScore: 550 }, context).map((word) => word.id);
+  assert.equal(first[0], 2);
+  assert.deepEqual(second, first);
+});
+
 test('review candidates include only due words and prefer risk', () => {
   const states = {
     1: { status: 'reviewing', nextReviewAt: 10, difficulty: .3, mistakeCount: 0, lastReviewedAt: 0 },

@@ -31,11 +31,16 @@ export function loadState(words) {
 }
 
 export function updateSettings(state, values, words) {
+  const learningIntensity = ['relaxed', 'standard', 'intensive'].includes(values.learningIntensity)
+    ? values.learningIntensity
+    : (state.settings.learningIntensity || 'standard');
   const settings = {
     ...state.settings,
     targetScore: boundedNumber(values.targetScore, state.settings.targetScore, 1, 710),
     dailyNew: boundedNumber(values.dailyNew, state.settings.dailyNew, 1, 100),
+    examDate: /^\d{4}-\d{2}-\d{2}$/.test(String(values.examDate || '')) ? String(values.examDate) : state.settings.examDate,
     pronunciationPreference: values.pronunciationPreference === 'us' ? 'us' : (values.pronunciationPreference === 'uk' ? 'uk' : (state.settings.pronunciationPreference || 'uk')),
+    learningIntensity,
   };
   const untouched = state.queueIndex === 0 && state.completed.length === 0 && !state.revealed && !(state.pendingImported || []).length;
   if (!untouched) return { ...state, settings };

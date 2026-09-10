@@ -16,9 +16,12 @@ test('streak counts consecutive study days only once per day', () => {
 
 test('daily task is review first, then new words, with deterministic limit', () => {
   const words = Array.from({ length: 4 }, (_, id) => ({ id, word: `word-${id}`, isStudyWord: true, importanceScore: 10 - id, frequencyRank: id + 1 }));
-  const task = createDailyTask({ words, wordStates: { 0: { status: 'reviewing', nextReviewAt: 1, difficulty: .5 } }, settings: { dailyNew: 2 }, now: 10 });
+  const options = { words, wordStates: { 0: { status: 'reviewing', nextReviewAt: 1, difficulty: .5 } }, settings: { dailyNew: 2 }, seed: 'test-user:1970-01-01', now: 10 };
+  const task = createDailyTask(options);
   assert.deepEqual(task.reviewWordIds, [0]);
-  assert.deepEqual(task.newWordIds, [1, 2]);
+  assert.equal(task.newWordIds.length, 2);
+  assert.equal(task.newWordIds.includes(0), false);
+  assert.deepEqual(createDailyTask(options).newWordIds, task.newWordIds);
   assert.equal(task.currentStage, 'review');
 });
 
@@ -40,16 +43,18 @@ test('creates one batch with the configured size and empty review pool', () => {
   const task = createDailyTask({ words, settings: { dailyNew: 2 }, now: 100 });
   assert.equal(task.batchSize, 2);
   assert.equal(task.batches.length, 1);
-  assert.deepEqual(task.batches[0].newWordIds, [0, 1]);
+  assert.equal(task.batches[0].newWordIds.length, 2);
   assert.deepEqual(task.reviewPoolIds, []);
 });
 
 test('appends a second batch only when explicitly requested and preserves the first batch', () => {
   const words = Array.from({ length: 4 }, (_, id) => ({ id, word: `word-${id}`, isStudyWord: true, importanceScore: 20 - id, frequencyRank: id + 1 }));
   const first = createDailyTask({ words, settings: { dailyNew: 2 }, now: 100 });
-  const next = appendNewBatch(first, { words, wordStates: { 0: { status: 'reviewing' }, 1: { status: 'reviewing' } }, settings: { dailyNew: 2 }, now: 101 });
-  assert.deepEqual(next.batches[0].newWordIds, [0, 1]);
-  assert.deepEqual(next.batches[1].newWordIds, [2, 3]);
+  const learned = Object.fromEntries(first.newWordIds.map((id) => [id, { status: 'reviewing' }]));
+  const next = appendNewBatch(first, { words, wordStates: learned, settings: { dailyNew: 2 }, now: 101 });
+  assert.deepEqual(next.batches[0].newWordIds, first.batches[0].newWordIds);
+  assert.equal(next.batches[1].newWordIds.length, 2);
+  assert.equal(next.batches[1].newWordIds.some((id) => next.batches[0].newWordIds.includes(id)), false);
   assert.equal(next.activeBatchId, next.batches[1].id);
 });
 

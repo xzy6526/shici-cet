@@ -1,4 +1,5 @@
 import { normalizeWord, createUserWordState } from './domain.js';
+import { createPersonalLearningPool } from './personal-plan.js';
 
 const asState = (wordStates, id) => wordStates?.[String(id)] || wordStates?.[id] || createUserWordState(id);
 
@@ -33,17 +34,15 @@ export function getReviewCandidates(words, wordStates = {}, now = Date.now()) {
     });
 }
 
-export function getNewWordCandidates(words, wordStates = {}, settings = {}) {
-  const targetScore = Number(settings.targetScore) || 550;
-  const targetWeight = targetScore >= 600 ? 1.35 : targetScore >= 550 ? 1.2 : targetScore >= 500 ? 1.08 : 1;
-  return (Array.isArray(words) ? words : [])
-    .filter((word) => {
-      const state = asState(wordStates, word.id);
-      return state.status === 'unseen' && state.status !== 'hidden' && word.isStudyWord !== false;
-    })
-    .map((word) => ({ word, score: (Number(word.importanceScore) || 0) * targetWeight + Math.log1p(Number(word.frequency) || 0) }))
-    .sort((a, b) => b.score - a.score || (Number(a.word.frequencyRank) || 99999) - (Number(b.word.frequencyRank) || 99999))
-    .map(({ word }) => word);
+export function getNewWordCandidates(words, wordStates = {}, settings = {}, context = {}) {
+  return createPersonalLearningPool({
+    words,
+    wordStates,
+    profile: context.profile || null,
+    targetScore: settings.targetScore,
+    seed: context.seed || 'default',
+    now: context.now,
+  });
 }
 
 export function getFavoriteWords(words, wordStates = {}) {

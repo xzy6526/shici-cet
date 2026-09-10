@@ -179,11 +179,11 @@ export function addBatchReviewWords(task, batchId, ids = []) {
   return next;
 }
 
-export function appendNewBatch(task, { words = [], wordStates = {}, settings = {}, now = Date.now() } = {}) {
+export function appendNewBatch(task, { words = [], wordStates = {}, settings = {}, profile = null, seed = '', now = Date.now() } = {}) {
   if (!task) return null;
   const normalized = normalizeDailyTask(task);
   const limit = Math.min(100, Math.max(1, Number(settings.dailyNew) || normalized.batchSize || 20));
-  const candidates = getNewWordCandidates(words, wordStates, settings).slice(0, limit).map((word) => word.id);
+  const candidates = getNewWordCandidates(words, wordStates, settings, { profile, seed: seed || `${normalized.date}:${normalized.batches.length + 1}`, now }).slice(0, limit).map((word) => word.id);
   if (!candidates.length) return null;
   const id = `${normalized.date}-${normalized.batches.length + 1}`;
   const batch = createBatch({ id, newWordIds: candidates, createdAt: now });
@@ -251,11 +251,11 @@ function stageFor(task) {
   return 'complete';
 }
 
-export function createDailyTask({ words = [], wordStates = {}, settings = {}, now = Date.now(), previousTask = null } = {}) {
+export function createDailyTask({ words = [], wordStates = {}, settings = {}, profile = null, seed = '', now = Date.now(), previousTask = null } = {}) {
   const today = dateKey(now);
   if (previousTask?.date === today) return { ...previousTask, currentStage: stageFor(previousTask) };
   const reviews = getReviewCandidates(words, wordStates, now).map((word) => word.id);
-  const candidates = getNewWordCandidates(words, wordStates, settings);
+  const candidates = getNewWordCandidates(words, wordStates, settings, { profile, seed: seed || today, now });
   const limit = Math.min(100, Math.max(1, Number(settings.dailyNew) || 20));
   const news = candidates.slice(0, limit).map((word) => word.id);
   const batchId = `${today}-1`;

@@ -18,6 +18,7 @@ try {
     await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173/');
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: 'networkidle' });
+    if (await page.locator('[data-assessment-skip]').count()) await page.locator('[data-assessment-skip]').click();
     const review = () => page.locator('[data-action="start-review"]');
     const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('shici-cet-state-v3')));
     assert.equal(await review().isEnabled(), true);

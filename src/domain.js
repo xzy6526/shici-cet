@@ -1,6 +1,6 @@
 const DEFAULT_NOW = () => Date.now();
 
-export const STATE_SCHEMA_VERSION = 2;
+export const STATE_SCHEMA_VERSION = 3;
 
 const asText = (value) => String(value ?? '').trim();
 const priorityOrder = { cet_high: 0, core: 1, secondary: 2, rare: 3 };
@@ -276,6 +276,28 @@ function normalizeWordState(value, wordId, now) {
   return merged;
 }
 
+function historyProfile(wordStates, history, now) {
+  const studied = Object.values(wordStates).filter((entry) => entry.status !== 'unseen' || entry.reviewCount > 0);
+  const historyDays = Object.values(history || {}).filter((entry) => entry && typeof entry === 'object');
+  if (!studied.length && !historyDays.length) return null;
+  const correct = studied.reduce((sum, entry) => sum + (Number(entry.correctCount) || 0), 0);
+  const wrong = studied.reduce((sum, entry) => sum + (Number(entry.wrongCount) || 0), 0);
+  const coverage = correct + wrong ? correct / (correct + wrong) : 0.5;
+  const score = Number(Math.min(0.95, Math.max(0.05, coverage)).toFixed(2));
+  return {
+    assessmentVersion: null,
+    completedAt: null,
+    estimatedCoverage: { min: Number(Math.max(0, score - 0.12).toFixed(2)), max: Number(Math.min(1, score + 0.12).toFixed(2)) },
+    estimatedLevel: Math.min(5, Math.max(1, Math.round(1 + score * 4))),
+    confidence: Number(Math.min(0.85, 0.35 + studied.length / 100).toFixed(2)),
+    bandScores: { core: score, highFrequency: score, advanced: Math.max(0.05, score - 0.1), rareMeaning: Math.max(0.05, score - 0.2) },
+    testedWords: [],
+    weakCategories: [],
+    source: 'history',
+    lastUpdatedAt: now,
+  };
+}
+
 export function migrateState(saved, words, now = DEFAULT_NOW()) {
   const list = Array.isArray(words) ? words : [];
   const validIds = new Map(list.map((word) => [String(word.id), word.id]));
@@ -300,10 +322,18 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
   }
   const settings = { ...initial.settings, ...(saved.settings || {}) };
   settings.themePreference = ['system', 'light', 'dark'].includes(settings.themePreference) ? settings.themePreference : 'system';
+  settings.learningIntensity = ['relaxed', 'standard', 'intensive'].includes(settings.learningIntensity) ? settings.learningIntensity : 'standard';
   settings.themeUpdatedAt = Math.max(0, Number(settings.themeUpdatedAt) || 0);
   const sessionMode = ['daily', 'review'].includes(saved.sessionMode) ? saved.sessionMode : null;
   const reviewScope = ['daily', 'batch'].includes(saved.reviewScope) ? saved.reviewScope : null;
   const completionType = ['batch', 'review', 'daily'].includes(saved.completionType) ? saved.completionType : null;
+  const history = saved.history && typeof saved.history === 'object' ? saved.history : {};
+  const assessment = saved.assessment && typeof saved.assessment === 'object'
+    ? { ...saved.assessment, answers: Array.isArray(saved.assessment.answers) ? saved.assessment.answers : [], testedWordIds: Array.isArray(saved.assessment.testedWordIds) ? saved.assessment.testedWordIds : [] }
+    : null;
+  const vocabularyProfile = saved.vocabularyProfile && typeof saved.vocabularyProfile === 'object'
+    ? saved.vocabularyProfile
+    : historyProfile(wordStates, history, now);
   return {
     ...initial,
     ...saved,
@@ -321,7 +351,10 @@ export function migrateState(saved, words, now = DEFAULT_NOW()) {
     weakToday,
     wordStates,
     settings,
-    history: saved.history && typeof saved.history === 'object' ? saved.history : {},
+    history,
+    assessment,
+    vocabularyProfile,
+    adaptivePlan: saved.adaptivePlan && typeof saved.adaptivePlan === 'object' ? saved.adaptivePlan : null,
     stats: { ...initial.stats, ...(saved.stats || {}) },
   };
 }
@@ -348,6 +381,9 @@ export function createInitialState(words, now = DEFAULT_NOW()) {
     weakToday: [],
     dueCount: 0,
     dailyTask: null,
+    assessment: null,
+    vocabularyProfile: null,
+    adaptivePlan: null,
     history: {},
     stats: {
       totalLearned: 0,
@@ -370,6 +406,7 @@ export function createInitialState(words, now = DEFAULT_NOW()) {
       targetScore: 550,
       examDate: '2026-12-19',
       dailyNew,
+      learningIntensity: 'standard',
       pronunciationPreference: 'uk',
       themePreference: 'system',
       themeUpdatedAt: now,
